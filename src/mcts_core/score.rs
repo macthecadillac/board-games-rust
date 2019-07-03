@@ -5,23 +5,31 @@ use std::fmt;
 use super::Outcome;
 
 #[derive(Clone, Debug)]
+/// The Score struct for internal use in the MCTS algorithm
 pub struct Score {
     q: f32,
     u: f32,
+    /// Number of wins so far
     win: usize,
+    /// Number of losses so far
     loss: usize,
+    /// Number of draws so far
     draw: usize,
+    /// The total numeber of games simulated so far
     total: usize,
     ptot: usize
 }
 
 impl Score {
+    /// Create a new Score struct
     pub fn new(ptot: usize) -> Self {
         Score { q: 1., u: 1., win: 0, loss: 0, draw: 0, total: 0, ptot }
     }
 
+    /// Return the total number of games played
     pub fn total(&self) -> usize { self.total }
 
+    /// Update the Score struct based on the game outcome
     pub fn update(&mut self, outcome: Outcome) {
         let delta = match outcome {
             Outcome::Win => Score {
@@ -42,17 +50,29 @@ impl Score {
         (self.q - rhs.q).abs() < 1e-5 && (self.u - rhs.u).abs() < 1e-5
     }
 
+    /// ***TODO*** might want to rename this to something more descriptive
     fn score(q: f32, a: &Score) -> f32 { (q + 1.) * a.u.sqrt() }
 
+    /// Calculate the floating point score of a move from the AI's point of view
+    /// ***TODO*** might want to rename this to something more descriptive
     pub fn score_self(&self) -> f32 { Score::score(self.q, self) }
 
+    /// Calculate the floating point score of a move from the opponent's point
+    /// of view
+    /// ***TODO*** might want to rename this to something more descriptive
     pub fn score_other(&self) -> f32 { Score::score(1. - self.q, self) }
 
+    /// Compare two Score structs and pick the one more favorable from the
+    /// opponent's point of view
+    /// ***TODO*** might want to rename this to something more descriptive
     pub fn gt_other(&self, rhs: &Score) -> bool {
         if self.feq(rhs) { false }
         else { self.score_other() > rhs.score_other() }
     }
 
+    /// Compare two Score structs and pick the one more favorable from the
+    /// AI's point of view
+    /// ***TODO*** might want to rename this to something more descriptive
     pub fn gt_self(&self, rhs: &Score) -> bool {
         if self.feq(rhs) { false }
         else { self.score_self() > rhs.score_self() }

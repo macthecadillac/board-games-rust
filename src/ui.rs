@@ -2,6 +2,7 @@ pub trait Interactive<I> {
     fn is_valid_move(&self, mv: &I) -> bool;
 }
 
+/// Traits and functions that helps build a CLI interface
 pub mod terminal {
     use std::{io, fmt, str};
     use std::io::Write;
@@ -13,21 +14,34 @@ pub mod terminal {
     use crate::mcts_core::{Debug, Game, Next, Initialize, Status};
 
     #[derive(Debug)]
+    ///The Error type
     pub enum Error {
         ClearScreenError,
         ParseIntError,
     }
 
+    /// A collection of functions that must be implemented for CLI interfaces
     pub trait Terminal<D> {
+        /// Print the game-end screen.
         fn game_end_screen(&self, debug: &D) -> Result<(), Error>;
     }
 
+    /// Creates internal representations of different players from integers
+    /// provided by the player. It is necessary for the program to convert user
+    /// input from the command-line, which have limitations of the types of
+    /// input, into internal types. For instance, if the player input 3,
+    /// programmer might want to find a way to convert that into Player::Three,
+    /// if that enum exists and is useful for the game.
     pub trait FromInt {
         fn from_int(int: &usize) -> Result<Box<Self>, Error>;
     }
 
+    /// Keep or clear the buffer.
     enum Buffer { Keep, Clear }
 
+    /// Acquire input from the player and convert it into an internal
+    /// representation. This function parses the user input and asks for input
+    /// again if the input was invalid.
     fn acquire_input<T, I, P>(game_state: &T) -> I
         where
             I: Initialize + Eq + Copy + str::FromStr,
@@ -53,7 +67,7 @@ pub mod terminal {
         }
     }
 
-    /// TODO: Rename it to something better
+    /// Clean up, print what needs to be printed, and exit the game
     fn exit<T, I, P>(game_state: &T, debug: &Debug) -> Result<(), Error>
         where
             I: Initialize + Eq + Copy + str::FromStr,
@@ -72,7 +86,8 @@ pub mod terminal {
         }
     }
 
-    fn two_player_game<T, I, P>(debug: Debug) -> Result<(), Error>
+    /// Play against other humans
+    fn play_vs_humans<T, I, P>(debug: Debug) -> Result<(), Error>
         where
             I: Initialize + Eq + Copy + str::FromStr,
             P: Next + Copy + Eq + fmt::Display,
@@ -100,6 +115,9 @@ pub mod terminal {
         Ok(())
     }
 
+    /// Play against the MCTS AI.  ***TODO*** For games with more than two
+    /// players, have the ability to choose which side(s) are played by humans
+    /// and which are played by the AI.
     fn play_vs_ai<T, I, P>(nplayouts: usize, human_side: P, debug: Debug)
                            -> Result<(), Error>
         where
@@ -155,6 +173,8 @@ pub mod terminal {
         Ok(())
     }
 
+    /// The entry point into a terminal-based game. See the other files in the
+    /// repository for example usage.
     pub fn launch_game<T, I, P>(name: &str) -> Result<(), Error>
         where
             I: Initialize + Eq + Copy + fmt::Display + str::FromStr,
@@ -223,7 +243,7 @@ pub mod terminal {
             play_vs_ai::<T, I, P>(nplayouts, side, debug)
         } else {
             clear_screen()?;
-            two_player_game::<T, I, P>(debug)
+            play_vs_humans::<T, I, P>(debug)
         }
     }
 }
