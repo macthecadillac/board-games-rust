@@ -305,5 +305,5 @@ impl fmt::Display for ConnectFourState {
 }
 
 fn main() -> Result<(), terminal::Error> {
-    ui::terminal::launch_game::<ConnectFourState, Index, Player>("Connect 4")
+    ui::terminal::launch_game::<ConnectFourState, Index, Player>("Connect Four")
 }

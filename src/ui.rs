@@ -181,10 +181,8 @@ pub mod terminal {
             P: Next + Copy + Eq + fmt::Display + FromInt,
             T: Game<I, P> + Terminal<Debug> + crate::Interactive<I> + Clone + fmt::Display {
         let args = App::new(name)
-            .version(crate_version!())
             .author(crate_authors!())
-            .about("A curation of board games with an optional Monte-Carlo \
-                    based AI")
+            .about("A board game with an optional Monte-Carlo based AI")
             .arg(Arg::with_name("ai")
                  .short("a")
                  .long("ai")
