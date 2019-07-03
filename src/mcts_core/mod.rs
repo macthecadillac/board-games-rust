@@ -36,7 +36,9 @@ pub trait Game<I, P>
     fn init() -> Self;
 
     /// Return all the available moves for the current player in the current
-    /// game state.
+    /// game state. For games in which repeated moves are possible, this method
+    /// *must* remove such moves from the list of available moves to avoid
+    /// possible infinite loops.
     fn available_moves(&self) -> Vec<I>;
 
     /// Return the player that plays the next turn.
