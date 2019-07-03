@@ -3,11 +3,14 @@ extern crate clap;
 #[macro_use]
 extern crate derive_more;
 extern crate console;
+extern crate indextree;
 extern crate itertools;
+extern crate rand;
+extern crate rayon;
 extern crate unicode_segmentation;
 
 use std::{fmt, num, str};
-use mcts_core::{Debug, Inc, Dec, Initialize, Next, Game, Status};
+use mcts_core::{Debug, Initialize, Next, Game, Status};
 use ui::Interactive;
 use ui::terminal;
 
@@ -112,13 +115,9 @@ impl Index {
         let Index(i) = *self;
         i as usize
     }
-}
 
-impl Inc for Index {
     fn inc(&self) -> Self { *self + Index(1) }
-}
 
-impl Dec for Index {
     fn dec(&self) -> Self { *self - Index(1) }
 }
 

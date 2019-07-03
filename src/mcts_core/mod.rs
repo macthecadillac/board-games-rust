@@ -1,6 +1,3 @@
-extern crate indextree;
-extern crate rand;
-
 use std::fmt;
 use std::cmp;
 
@@ -62,18 +59,6 @@ pub trait Next {
     /// players. The implementer of the game should provide a mechanism that
     /// gives the player in the next turn.
     fn next(&self) -> Self;
-}
-
-/// The Inc trait
-pub trait Inc {
-    /// Increment the input by 1.
-    fn inc(&self) -> Self;
-}
-
-/// The Dec trait
-pub trait Dec {
-    /// Decrement the input by 1.
-    fn dec(&self) -> Self;
 }
 
 /// The type of a node in a tree (indextree).

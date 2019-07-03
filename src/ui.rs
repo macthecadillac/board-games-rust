@@ -10,7 +10,7 @@ pub mod terminal {
     use clap::{Arg, App};
 
     use crate::mcts_core;
-    use crate::mcts_core::{Inc, Debug, Game, Next, Initialize, Status};
+    use crate::mcts_core::{Debug, Game, Next, Initialize, Status};
 
     #[derive(Debug)]
     pub enum Error {
@@ -103,7 +103,7 @@ pub mod terminal {
     fn play_vs_ai<T, I, P>(nplayouts: usize, human_side: P, debug: Debug)
                            -> Result<(), Error>
         where
-            I: Initialize + Eq + Copy + str::FromStr + fmt::Display + Inc,
+            I: Initialize + Eq + Copy + str::FromStr + fmt::Display,
             P: Next + Copy + Eq + fmt::Display,
             T: Game<I, P> + Terminal<Debug> + crate::Interactive<I> +
                 fmt::Display + Clone
@@ -145,7 +145,7 @@ pub mod terminal {
                                                                    &game_state,
                                                                    &debug);
                         game_state = game_state.mv(&ai_move);
-                        println!("\nCOMPUTER MOVE: {}\n", ai_move.inc());
+                        println!("\nCOMPUTER MOVE: {}\n", ai_move);
                         println!("{}", game_state);
                         buffer = Buffer::Keep;
                     }
@@ -157,7 +157,7 @@ pub mod terminal {
 
     pub fn launch_game<T, I, P>(name: &str) -> Result<(), Error>
         where
-            I: Inc + Initialize + Eq + Copy + fmt::Display + str::FromStr,
+            I: Initialize + Eq + Copy + fmt::Display + str::FromStr,
             P: Next + Copy + Eq + fmt::Display + FromInt,
             T: Game<I, P> + Terminal<Debug> + crate::Interactive<I> + Clone + fmt::Display {
         let args = App::new(name)
