@@ -2,6 +2,24 @@ pub trait Interactive<I> {
     fn is_valid_move(&self, mv: &I) -> bool;
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+/// The PlayerKind type
+pub enum PlayerKind {
+    /// Human player
+    Human,
+    /// AI player
+    Bot
+}
+
+pub trait Builder {
+    fn new(int: usize, kind: PlayerKind) -> Option<Self>
+        where Self: Sized;
+}
+
+pub trait Turing {
+    fn turing_test(&self) -> PlayerKind;
+}
+
 /// Traits and functions that helps build a CLI interface
 pub mod terminal {
     use std::{io, fmt, str};
@@ -11,7 +29,9 @@ pub mod terminal {
     use clap::{Arg, App};
 
     use crate::mcts_core;
-    use crate::mcts_core::{Debug, Game, Next, Initialize, Status};
+    use crate::mcts_core::{Debug, Game, Initialize, Status};
+
+    use super::{PlayerKind, Turing, Builder};
 
     #[derive(Debug)]
     ///The Error type
@@ -26,16 +46,6 @@ pub mod terminal {
         fn game_end_screen(&self, debug: &D) -> Result<(), Error>;
     }
 
-    /// Creates internal representations of different players from integers
-    /// provided by the player. It is necessary for the program to convert user
-    /// input from the command-line, which have limitations of the types of
-    /// input, into internal types. For instance, if the player input 3,
-    /// programmer might want to find a way to convert that into Player::Three,
-    /// if that enum exists and is useful for the game.
-    pub trait FromInt {
-        fn from_int(int: &usize) -> Result<Box<Self>, Error>;
-    }
-
     /// Keep or clear the buffer.
     enum Buffer { Keep, Clear }
 
@@ -45,7 +55,7 @@ pub mod terminal {
     fn acquire_input<T, I, P>(game_state: &T) -> I
         where
             I: Initialize + Eq + Copy + str::FromStr,
-            P: Next + Copy + Eq + fmt::Display,
+            P: Copy + Eq + fmt::Display,
             T: Game<I, P> {
         loop {
             print!("\nEnter your move: ");
@@ -71,11 +81,11 @@ pub mod terminal {
     fn exit<T, I, P>(game_state: &T, debug: &Debug) -> Result<(), Error>
         where
             I: Initialize + Eq + Copy + str::FromStr,
-            P: Next + Copy + Eq + fmt::Display,
+            P: Copy + Eq + fmt::Display,
             T: Game<I, P> + Terminal<Debug> + crate::Interactive<I> + fmt::Display {
         match game_state.winner() {
             None => {
-                println!("The game is a draw.");
+                println!("This game is a draw.");
                 Ok(())
             },
             Some(p) => {
@@ -86,53 +96,24 @@ pub mod terminal {
         }
     }
 
-    /// Play against other humans
-    fn play_vs_humans<T, I, P>(debug: Debug) -> Result<(), Error>
-        where
-            I: Initialize + Eq + Copy + str::FromStr,
-            P: Next + Copy + Eq + fmt::Display,
-            T: Game<I, P> + Terminal<Debug> + crate::Interactive<I> + fmt::Display {
-        let mut game_state: T = Game::init();
-        let term = Term::stdout();
-        loop {
-            match game_state.status() {
-                Status::Finished => {
-                    exit(&game_state, &debug)?;
-                    break
-                },
-                Status::Ongoing => {
-                    println!("Current player: {}\n", game_state.curr_player());
-                    println!("{}", game_state);
-                    let n = acquire_input(&game_state);
-                    match term.clear_screen() {
-                        Ok(_) => Ok(()),
-                        Err(_) => Err(Error::ClearScreenError)
-                    }?;
-                    game_state = game_state.mv(&n);
-                }
-            }
-        };
-        Ok(())
-    }
-
     /// Play against the MCTS AI.  ***TODO*** For games with more than two
     /// players, have the ability to choose which side(s) are played by humans
     /// and which are played by the AI.
-    fn play_vs_ai<T, I, P>(nplayouts: usize, human_side: P, debug: Debug)
-                           -> Result<(), Error>
+    fn game_loop<T, I, P>(nplayouts: usize, players: Vec<P>,
+                          debug: Debug) -> Result<(), Error>
         where
             I: Initialize + Eq + Copy + str::FromStr + fmt::Display,
-            P: Next + Copy + Eq + fmt::Display,
+            P: Turing + Copy + Eq + fmt::Display,
             T: Game<I, P> + Terminal<Debug> + crate::Interactive<I> +
                 fmt::Display + Clone
     {
-        let mut game_state: T = Game::init();
+        let mut game_state: T = Game::new(players);
         println!("\n{}", game_state);
 
         let term = Term::stdout();
         let mut buffer = Buffer::Keep;
         loop {
-            let curr_side = game_state.curr_player();
+            let current_player = game_state.current_player();
             match game_state.status() {
                 Status::Finished => {
                     exit(&game_state, &debug)?;
@@ -149,23 +130,27 @@ pub mod terminal {
                         },
                         _ => ()
                     };
-                    if human_side == curr_side {
-                        let n = acquire_input(&game_state);
-                        game_state = game_state.mv(&n);
-                        println!("\n{}", game_state);
-                        if game_state.curr_player() == curr_side {
-                            buffer = Buffer::Keep
-                        } else {
-                            buffer = Buffer::Clear
+                    match current_player.turing_test() {
+                        PlayerKind::Human => {
+                            let n = acquire_input(&game_state);
+                            game_state = game_state.mv(&n);
+                            println!("\n{}", game_state);
+                            // if the current player has another turn
+                            if game_state.current_player() == current_player {
+                                buffer = Buffer::Keep
+                            } else {
+                                buffer = Buffer::Clear
+                            }
+                        },
+                        PlayerKind::Bot => {
+                            let ai_move = mcts_core::most_favored_move(nplayouts,
+                                                                       &game_state,
+                                                                       &debug);
+                            game_state = game_state.mv(&ai_move);
+                            println!("\nPlayer {}'s move: {}\n", current_player, ai_move);
+                            println!("{}", game_state);
+                            buffer = Buffer::Keep;
                         }
-                    } else {
-                        let ai_move = mcts_core::most_favored_move(nplayouts,
-                                                                   &game_state,
-                                                                   &debug);
-                        game_state = game_state.mv(&ai_move);
-                        println!("\nCOMPUTER MOVE: {}\n", ai_move);
-                        println!("{}", game_state);
-                        buffer = Buffer::Keep;
                     }
                 }
             }
@@ -178,22 +163,11 @@ pub mod terminal {
     pub fn launch_game<T, I, P>(name: &str) -> Result<(), Error>
         where
             I: Initialize + Eq + Copy + fmt::Display + str::FromStr,
-            P: Next + Copy + Eq + fmt::Display + FromInt,
+            P: Builder + Turing + Copy + Eq + fmt::Display,
             T: Game<I, P> + Terminal<Debug> + crate::Interactive<I> + Clone + fmt::Display {
         let args = App::new(name)
             .author(crate_authors!())
             .about("A board game with an optional Monte-Carlo based AI")
-            .arg(Arg::with_name("ai")
-                 .short("a")
-                 .long("ai")
-                 .help("Play against the computer."))
-            .arg(Arg::with_name("side")
-                 .short("s")
-                 .long("side")
-                 .takes_value(true)
-                 .help("In a multiplayer game, the side of the human player. \
-                        If the human player is the first player, enter 1, \
-                        and so on."))
             .arg(Arg::with_name("nplayouts")
                  .short("n")
                  .long("nplayouts")
@@ -223,25 +197,38 @@ pub mod terminal {
             }
         };
 
-        let ai = args.is_present("ai");
+        clear_screen()?;
+        println!("\nGame setup:");
+        let players: Vec<P> = (1..).map(|n| {
+                // the concrete PlayerKind here is unimportant: we only care
+                // about whether the iterator should end
+                let f: Option<P> = Builder::new(n, PlayerKind::Human);
+                match f {
+                    None => None,
+                    Some(_) => loop {
+                        print!("    Player {}  (1. Human, 2. Bot)?: ", n);
+                        io::stdout().flush().unwrap();  // ensures the msg shows up
+                        let mut input = String::new();
+                        match io::stdin().read_line(&mut input) {
+                            Err(_) => println!("Invalid input."),
+                            Ok(_) => match input.trim() {
+                                "1" => break Builder::new(n, PlayerKind::Human),
+                                "2" => break Builder::new(n, PlayerKind::Bot),
+                                _ => println!("Invalid input.")
+                            }
+                        }
+                    }
+                }
+            })
+            .take_while(|&x| x.is_some())
+            .map(|x| x.unwrap())
+            .collect();
+
         let n = args.value_of("nplayouts").unwrap_or("3000");
         let nplayouts = parse_int(n)?;
         let debug = if args.is_present("debug") { Debug::Debug }
                     else { Debug::Release };
-        if ai {
-            let h = parse_int(args.value_of("side").unwrap_or("1"))?;
-            let side = match P::from_int(&h) {
-                Ok(u) => Ok(*u),
-                Err(_) => {
-                    println!("Invalid argument. See help.");
-                    Err(Error::ParseIntError)
-                }
-            }?;
-            clear_screen()?;
-            play_vs_ai::<T, I, P>(nplayouts, side, debug)
-        } else {
-            clear_screen()?;
-            play_vs_humans::<T, I, P>(debug)
-        }
+        clear_screen()?;
+        game_loop::<T, I, P>(nplayouts, players, debug)
     }
 }

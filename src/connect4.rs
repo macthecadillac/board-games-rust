@@ -11,8 +11,8 @@ extern crate rand;
 extern crate unicode_segmentation;
 
 use std::{fmt, num, str};
-use mcts_core::{Debug, Initialize, Next, Game, Status};
-use ui::Interactive;
+use mcts_core::{Debug, Initialize, Game, Status};
+use ui::{Interactive, PlayerKind, Builder, Turing};
 use ui::terminal;
 
 use console::{Style, Term};
@@ -75,39 +75,55 @@ static POW2: [BitBoard; 42] = [
     BitBoard(549755813888), BitBoard(1099511627776), BitBoard(2199023255552)
 ];
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone)]
 /// The player type
 enum Player {
     /// Player one
-    One,
+    One(PlayerKind),
     /// Player two
-    Two
+    Two(PlayerKind)
 }
 
-impl Next for Player {
-    fn next(&self) -> Self {
-        match self {
-            Player::One => Player::Two,
-            Player::Two => Player::One
-        }
-    }
-}
-
-impl terminal::FromInt for Player {
-    fn from_int(int: &usize) -> Result<Box<Self>, terminal::Error> {
+impl Builder for Player {
+    fn new(int: usize, kind: PlayerKind) -> Option<Player> {
         match int {
-            1 => Ok(Box::new(Player::One)),
-            2 => Ok(Box::new(Player::Two)),
-            _ => Err(terminal::Error::ParseIntError)
+            1 => Some(Player::One(kind)),
+            2 => Some(Player::Two(kind)),
+            _ => None
         }
     }
 }
+
+impl Turing for Player {
+    fn turing_test(&self) -> PlayerKind {
+        use Player::*;
+        use PlayerKind::*;
+        match self {
+            One(Human) | Two(Human) => Human,
+            One(Bot) | Two(Bot) => Bot
+        }
+    }
+}
+
+impl PartialEq for Player {
+    fn eq(&self, rhs: &Self) -> bool {
+        match (self, rhs) {
+            // We don't really care about the player kind here since there can
+            // only be one player 1 and so on in the game
+            (Player::One(_), Player::One(_)) |
+                (Player::Two(_), Player::Two(_)) => true,
+            _ => false
+        }
+    }
+}
+
+impl Eq for Player {}
 
 impl fmt::Display for Player {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Player::One => write!(f, "1"),
-            Player::Two => write!(f, "2")
+            Player::One(_) => write!(f, "1"),
+            Player::Two(_) => write!(f, "2")
         }
     }
 }
@@ -169,6 +185,10 @@ impl BitBoard {
 struct ConnectFourState {
     /// The player that has the turn
     curr_player: Player,
+    /// Player One
+    player_one: Player,
+    /// Player Two
+    player_two: Player,
     /// The pieces of the current player
     curr_side: BitBoard,
     /// The pieces of the opposing player
@@ -176,9 +196,19 @@ struct ConnectFourState {
 }
 
 impl Game<Index, Player> for ConnectFourState {
-    fn init() -> Self {
+    fn new(players: Vec<Player>) -> Self {
+        use Player::*;
+
+        let (player_one, player_two) = match &players[..] {
+            &[One(a), Two(b)] => (One(a), Two(b)),
+            &[Two(b), One(a)] => (One(a), Two(b)),
+            _ => panic!("Invalid input")   // inaccessible branch
+        };
+
         ConnectFourState {
-            curr_player: Player::One,
+            curr_player: player_one,
+            player_one,
+            player_two,
             curr_side: BitBoard(0),
             other_side: BitBoard(0)
         }
@@ -197,7 +227,14 @@ impl Game<Index, Player> for ConnectFourState {
         moves
     }
 
-    fn curr_player(&self) -> Player { self.curr_player }
+    fn current_player(&self) -> Player { self.curr_player }
+
+    fn next_player(&self) -> Player {
+        match self.curr_player {
+            Player::One(_) => self.player_two,
+            Player::Two(_) => self.player_one
+        }
+    }
 
     fn status(&self) -> Status {
         let finished = self.curr_side.check_winner() ||
@@ -209,7 +246,7 @@ impl Game<Index, Player> for ConnectFourState {
     }
 
     fn mv(&self, indx: &Index) -> Self {
-        let curr_player = self.curr_player.next();
+        let curr_player = self.next_player();
         let mut other_side = self.curr_side;
         let curr_side = self.other_side;
         let full_board = self.curr_side + self.other_side;
@@ -221,13 +258,13 @@ impl Game<Index, Player> for ConnectFourState {
                 break
             }
         };
-        ConnectFourState { curr_player, curr_side, other_side }
+        ConnectFourState { curr_player, curr_side, other_side, ..*self }
     }
 
     fn winner(&self) -> Option<Player> {
         if self.curr_side.check_winner() { Some(self.curr_player) }
-        // the use of next here is safe since connect4 is a two-player game
-        else if self.other_side.check_winner() { Some(self.curr_player.next()) }
+        // the use of next_player here is safe since connect4 is a two-player game
+        else if self.other_side.check_winner() { Some(self.next_player()) }
         else { None }
     }
 }
@@ -262,8 +299,8 @@ impl fmt::Display for ConnectFourState {
             format!("{:0>42}", bitstring)
         };
         let (side_one, side_two) = match self.curr_player {
-            Player::One => (self.curr_side, self.other_side),
-            Player::Two => (self.other_side, self.curr_side)
+            Player::One(_) => (self.curr_side, self.other_side),
+            Player::Two(_) => (self.other_side, self.curr_side)
         };
         let player_one_repr = int_to_padded_str(side_one);
         let player_two_repr = int_to_padded_str(side_two);
