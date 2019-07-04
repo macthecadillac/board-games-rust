@@ -41,9 +41,11 @@ pub mod terminal {
     }
 
     /// A collection of functions that must be implemented for CLI interfaces
-    pub trait Terminal<D> {
+    pub trait Terminal {
+        type Debug;
+
         /// Print the game-end screen.
-        fn game_end_screen(&self, debug: &D) -> Result<(), Error>;
+        fn game_end_screen(&self, debug: &Self::Debug) -> Result<(), Error>;
     }
 
     /// Keep or clear the buffer.
@@ -56,7 +58,7 @@ pub mod terminal {
         where
             I: Initialize + Eq + Copy + str::FromStr,
             P: Copy + Eq + fmt::Display,
-            T: Game<I, P> {
+            T: Game<Index=I, Player=P> {
         loop {
             print!("\nEnter your move: ");
             io::stdout().flush().unwrap();  // ensures the msg shows up
@@ -82,7 +84,8 @@ pub mod terminal {
         where
             I: Initialize + Eq + Copy + str::FromStr,
             P: Copy + Eq + fmt::Display,
-            T: Game<I, P> + Terminal<Debug> + crate::Interactive<I> + fmt::Display {
+            T: Game<Index=I, Player=P> + Terminal<Debug=Debug> +
+                crate::Interactive<I> + fmt::Display {
         match game_state.winner() {
             None => {
                 println!("This game is a draw.");
@@ -104,8 +107,8 @@ pub mod terminal {
         where
             I: Initialize + Eq + Copy + str::FromStr + fmt::Display,
             P: Turing + Copy + Eq + fmt::Display,
-            T: Game<I, P> + Terminal<Debug> + crate::Interactive<I> +
-                fmt::Display + Clone
+            T: Game<Index=I, Player=P> + Terminal<Debug=Debug> +
+                crate::Interactive<I> + fmt::Display + Clone
     {
         let mut game_state: T = Game::new(players);
         println!("\n{}", game_state);
@@ -147,7 +150,8 @@ pub mod terminal {
                                                                        &game_state,
                                                                        &debug);
                             game_state = game_state.mv(&ai_move);
-                            println!("\nPlayer {}'s move: {}\n", current_player, ai_move);
+                            println!("\nPlayer {}'s move: {}\n", current_player,
+                                     ai_move);
                             println!("{}", game_state);
                             buffer = Buffer::Keep;
                         }
@@ -164,7 +168,8 @@ pub mod terminal {
         where
             I: Initialize + Eq + Copy + fmt::Display + str::FromStr,
             P: Builder + Turing + Copy + Eq + fmt::Display,
-            T: Game<I, P> + Terminal<Debug> + crate::Interactive<I> + Clone + fmt::Display {
+            T: Game<Index=I, Player=P> + Terminal<Debug=Debug> +
+                crate::Interactive<I> + Clone + fmt::Display {
         let args = App::new(name)
             .author(crate_authors!())
             .about("A board game with an optional Monte-Carlo based AI")

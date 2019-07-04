@@ -28,34 +28,34 @@ pub enum Status {
 
 /// This provides the interface for all structs that describe the game state.
 /// Any such struct must provide the methods listed here to function properly.
-pub trait Game<I, P>
-    where
-        I: Initialize + Clone + Copy,
-        P: fmt::Display + Eq + Clone + Copy {
+pub trait Game {
+    type Index: Initialize + Clone + Copy;
+    type Player: fmt::Display + Eq + Clone + Copy;
+
     /// Initialize game
-    fn new(players: Vec<P>) -> Self;
+    fn new(players: Vec<Self::Player>) -> Self;
 
     /// Return all the available moves for the current player in the current
     /// game state. For games in which repeated moves are possible, this method
     /// *must* remove such moves from the list of available moves to avoid
     /// possible infinite loops.
-    fn available_moves(&self) -> Vec<I>;
+    fn available_moves(&self) -> Vec<Self::Index>;
 
     /// Return the player that plays the next turn.
-    fn current_player(&self) -> P;
+    fn current_player(&self) -> Self::Player;
 
     /// Return the player that plays the next turn.
-    fn next_player(&self) -> P;
+    fn next_player(&self) -> Self::Player;
 
     /// Check if the game has reached the end.
     fn status(&self) -> Status;
 
     /// Make the specified move and return the updated game state.
-    fn mv(&self, mv: &I) -> Self;
+    fn mv(&self, mv: &Self::Index) -> Self;
 
     /// Return the winner if the game has reached the end. Return None
     /// otherwise.
-    fn winner(&self) -> Option<P>;
+    fn winner(&self) -> Option<Self::Player>;
 }
 
 /// The type of a node in a tree (indextree).
@@ -179,7 +179,7 @@ fn expand_one_level<I, P, T>(tree: &mut Tree<I, P, T>, node_id: NodeId)
     where
         I: Initialize + Copy + Clone,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<I, P> + Clone {
+        T: Game<Index=I, Player=P> + Clone {
 
     let make_move = |ptot: usize, state: &T, index: &I| {
         let new_state = state.mv(index);
@@ -230,7 +230,7 @@ fn _playout_aux<I, P, T>(player: P, node_id: NodeId, tree: &mut Tree<I, P, T>)
     where
         I: Initialize + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<I, P> + Clone {
+        T: Game<Index=I, Player=P> + Clone {
     match node_id.node_type(tree) {
         NodeType::Node => {
             // TODO: Consider renaming this to something more descriptive
@@ -273,16 +273,17 @@ fn playout<I, P, T>(player: P, node: NodeId, tree: &mut Tree<I, P, T>)
     where
         I: Initialize + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<I, P> + Clone {
+        T: Game<Index=I, Player=P> + Clone {
     let _ = _playout_aux(player, node, tree);
 }
 
 /// Pick the most favorable move from the current game state
-pub fn most_favored_move<I, P, T>(maxiter: usize, game_state: &T, dbg: &Debug) -> I
+pub fn most_favored_move<I, P, T>(maxiter: usize, game_state: &T,
+                                  dbg: &Debug) -> I
     where
         I: Initialize + Copy + Clone + Eq + fmt::Display,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<I, P> + Clone {
+        T: Game<Index=I, Player=P> + Clone {
     let player = game_state.current_player();
     let init_score = Score::new(1);
     let mut tree = Tree::new();

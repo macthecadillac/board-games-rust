@@ -197,7 +197,10 @@ struct ConnectFourState {
     other_side: BitBoard
 }
 
-impl Game<Index, Player> for ConnectFourState {
+impl Game for ConnectFourState {
+    type Index = Index;
+    type Player = Player;
+
     fn new(players: Vec<Player>) -> Self {
         use Player::*;
 
@@ -278,7 +281,9 @@ impl Interactive<Index> for ConnectFourState {
     }
 }
 
-impl terminal::Terminal<Debug> for ConnectFourState {
+impl terminal::Terminal for ConnectFourState {
+    type Debug = Debug;
+
     fn game_end_screen(&self, debug: &Debug) -> Result<(), terminal::Error> {
         let term = Term::stdout();
         let result = match debug {
