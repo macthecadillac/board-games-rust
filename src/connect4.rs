@@ -308,9 +308,10 @@ impl fmt::Display for ConnectFourState {
         let player_two_repr = int_to_padded_str(side_two);
 
         let symbol_conv = |(a, b)| match (a, b) {
-            ('1', _) => 'o',
-            (_, '1') => 'x',
-            _ => ' '
+            ('1', '0') => 'o',
+            ('0', '1') => 'x',
+            ('0', '0') => ' ',
+            _ => panic!("Check your code!")
         };
         let red = Style::new().red().bold();
         let blue = Style::new().blue().bold();
@@ -324,16 +325,15 @@ impl fmt::Display for ConnectFourState {
             .chunks(14)
             .into_iter()
             .for_each(|l| {
-                let mut s = l.collect::<String>();
-                s.insert(0, '|');
-                for c in s.chars().rev() {
-                    match c {
+                l.collect::<String>()
+                    .chars()
+                    .rev()
+                    .for_each(|c| match c {
                         'o' => print!("{}", blue.apply_to('●')),
                         'x' => print!("{}", red.apply_to('●')),
                         _ => print!("{}", c)
-                    }
-                };
-                println!("");
+                    });
+                println!("|");
             });
         println!(" 1 2 3 4 5 6 7 ");
 
