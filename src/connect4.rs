@@ -163,11 +163,6 @@ impl str::FromStr for Index {
 struct BitBoard(u64);
 
 impl BitBoard {
-    fn as_u64(self) -> u64 {
-        let BitBoard(u) = self;
-        u
-    }
-
     // TODO: rewrite with try_fold when the Try trait API is stabilized
     fn check_winner(self) -> bool {
         let mut c = false;
@@ -176,6 +171,13 @@ impl BitBoard {
             else if x > self { break }
         };
         c
+    }
+}
+
+impl fmt::Binary for BitBoard {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let BitBoard(u) = self;
+        write!(f, "{:b}", u)
     }
 }
 
@@ -295,7 +297,7 @@ impl fmt::Display for ConnectFourState {
     fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result {
         println!(" 1 2 3 4 5 6 7 ");
         let int_to_padded_str = |bitboard: BitBoard| {
-            let bitstring = format!("{:b}", bitboard.as_u64());
+            let bitstring = format!("{:b}", bitboard);
             format!("{:0>42}", bitstring)
         };
         let (side_one, side_two) = match self.curr_player {
@@ -319,8 +321,6 @@ impl fmt::Display for ConnectFourState {
             .collect::<String>()
             .graphemes(true)  // needed to keep the compiler from complaining
             .interleave(vec!["|"; 42])
-            .collect::<String>()
-            .chars()
             .chunks(14)
             .into_iter()
             .for_each(|l| {
