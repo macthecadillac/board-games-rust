@@ -1,5 +1,5 @@
-pub trait Interactive<I> {
-    fn is_valid_move(&self, mv: &I) -> bool;
+pub trait Interactive<M> {
+    fn is_valid_move(&self, mv: &M) -> bool;
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -28,8 +28,8 @@ pub mod terminal {
     use console::Term;
     use clap::{Arg, App};
 
-    use crate::mcts_core;
-    use crate::mcts_core::{Debug, Game, Initialize, Status};
+    use crate::mcts;
+    use crate::mcts::{Debug, Game, Initialize, Status};
 
     use super::{PlayerKind, Turing, Builder};
 
@@ -54,18 +54,18 @@ pub mod terminal {
     /// Acquire input from the player and convert it into an internal
     /// representation. This function parses the user input and asks for input
     /// again if the input was invalid.
-    fn acquire_input<T, I, P>(game_state: &T) -> I
+    fn acquire_input<T, M, P>(game_state: &T) -> M
         where
-            I: Initialize + Eq + Copy + str::FromStr,
+            M: Initialize + Eq + Copy + str::FromStr,
             P: Copy + Eq + fmt::Display,
-            T: Game<Index=I, Player=P> {
+            T: Game<Move=M, Player=P> {
         loop {
             print!("\nEnter your move: ");
             io::stdout().flush().unwrap();  // ensures the msg shows up
             let mut input = String::new();
             match io::stdin().read_line(&mut input) {
                 Err(_) => println!("Invalid input."),
-                Ok(_) => match input.trim().parse::<I>() {
+                Ok(_) => match input.trim().parse::<M>() {
                     Err(_) => println!("Invalid input."),
                     Ok(m) => {
                         if game_state.available_moves()[..].contains(&m) {
@@ -80,12 +80,12 @@ pub mod terminal {
     }
 
     /// Clean up, print what needs to be printed, and exit the game
-    fn exit<T, I, P>(game_state: &T, debug: &Debug) -> Result<(), Error>
+    fn exit<T, M, P>(game_state: &T, debug: &Debug) -> Result<(), Error>
         where
-            I: Initialize + Eq + Copy + str::FromStr,
+            M: Initialize + Eq + Copy + str::FromStr,
             P: Copy + Eq + fmt::Display,
-            T: Game<Index=I, Player=P> + Terminal<Debug=Debug> +
-                crate::Interactive<I> + fmt::Display {
+            T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
+                crate::Interactive<M> + fmt::Display {
         match game_state.winner() {
             None => {
                 println!("This game is a draw.");
@@ -102,13 +102,13 @@ pub mod terminal {
     /// Play against the MCTS AI.  ***TODO*** For games with more than two
     /// players, have the ability to choose which side(s) are played by humans
     /// and which are played by the AI.
-    fn game_loop<T, I, P>(nplayouts: usize, players: Vec<P>,
+    fn game_loop<T, M, P>(nplayouts: usize, players: Vec<P>,
                           debug: Debug) -> Result<(), Error>
         where
-            I: Initialize + Eq + Copy + str::FromStr + fmt::Display,
+            M: Initialize + Eq + Copy + str::FromStr + fmt::Display,
             P: Turing + Copy + Eq + fmt::Display,
-            T: Game<Index=I, Player=P> + Terminal<Debug=Debug> +
-                crate::Interactive<I> + fmt::Display + Clone
+            T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
+                crate::Interactive<M> + fmt::Display + Clone
     {
         let mut game_state: T = Game::new(players);
         println!("\n{}", game_state);
@@ -146,9 +146,9 @@ pub mod terminal {
                             }
                         },
                         PlayerKind::Bot => {
-                            let ai_move = mcts_core::most_favored_move(nplayouts,
-                                                                       &game_state,
-                                                                       &debug);
+                            let ai_move = mcts::most_favored_move(nplayouts,
+                                                                  &game_state,
+                                                                  &debug);
                             game_state = game_state.mv(&ai_move);
                             println!("\nPlayer {}'s move: {}\n", current_player,
                                      ai_move);
@@ -164,12 +164,12 @@ pub mod terminal {
 
     /// The entry point into a terminal-based game. See the other files in the
     /// repository for example usage.
-    pub fn launch_game<T, I, P>(name: &str) -> Result<(), Error>
+    pub fn launch_game<T, M, P>(name: &str) -> Result<(), Error>
         where
-            I: Initialize + Eq + Copy + fmt::Display + str::FromStr,
+            M: Initialize + Eq + Copy + fmt::Display + str::FromStr,
             P: Builder + Turing + Copy + Eq + fmt::Display,
-            T: Game<Index=I, Player=P> + Terminal<Debug=Debug> +
-                crate::Interactive<I> + Clone + fmt::Display {
+            T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
+                crate::Interactive<M> + Clone + fmt::Display {
         let args = App::new(name)
             .author(crate_authors!())
             .about("A board game with an optional Monte-Carlo based AI")
@@ -234,6 +234,6 @@ pub mod terminal {
         let debug = if args.is_present("debug") { Debug::Debug }
                     else { Debug::Release };
         clear_screen()?;
-        game_loop::<T, I, P>(nplayouts, players, debug)
+        game_loop::<T, M, P>(nplayouts, players, debug)
     }
 }

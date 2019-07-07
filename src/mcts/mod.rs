@@ -29,7 +29,7 @@ pub enum Status {
 /// This provides the interface for all structs that describe the game state.
 /// Any such struct must provide the methods listed here to function properly.
 pub trait Game {
-    type Index: Initialize + Clone + Copy;
+    type Move: Initialize + Clone + Copy;
     type Player: fmt::Display + Eq + Clone + Copy;
 
     /// Initialize game
@@ -39,7 +39,7 @@ pub trait Game {
     /// game state. For games in which repeated moves are possible, this method
     /// *must* remove such moves from the list of available moves to avoid
     /// possible infinite loops.
-    fn available_moves(&self) -> Vec<Self::Index>;
+    fn available_moves(&self) -> Vec<Self::Move>;
 
     /// Return the player that plays the next turn.
     fn current_player(&self) -> Self::Player;
@@ -51,7 +51,7 @@ pub trait Game {
     fn status(&self) -> Status;
 
     /// Make the specified move and return the updated game state.
-    fn mv(&self, mv: &Self::Index) -> Self;
+    fn mv(&self, mv: &Self::Move) -> Self;
 
     /// Return the winner if the game has reached the end. Return None
     /// otherwise.
@@ -92,9 +92,9 @@ pub enum Debug { Debug, Release }
 /// The cell in indextree. This is useful for storing the index that
 /// parametrizes a move, the player that made the move, the score of the branch,
 /// and the game state at this point in the game.
-struct Cell<I, P, T> {
+struct Cell<M, P, T> {
     /// The index of a move
-    index: I,
+    index: M,
     /// The player that made the move
     player: P,
     /// The score of the branch the emenates from this node
@@ -103,11 +103,11 @@ struct Cell<I, P, T> {
     state: T
 }
 
-/// Type alias of `Arena<Cell<I, P, T>>`
-type Tree<I, P, T> = Arena<Cell<I, P, T>>;
+/// Type alias of `Arena<Cell<M, P, T>>`
+type Tree<M, P, T> = Arena<Cell<M, P, T>>;
 
-/// Type alias of `Node<Cell<I, P, T>>`
-type Node<I, P, T> = indextree::Node<Cell<I, P, T>>;
+/// Type alias of `Node<Cell<M, P, T>>`
+type Node<M, P, T> = indextree::Node<Cell<M, P, T>>;
 
 /// Generic function that compares two nodes using a user provided function.
 fn comp<T, U, V, O>(func: fn(&Score, &Score) -> O,
@@ -175,20 +175,20 @@ fn pick<'a, T, U, V>(greater: fn((T, &'a U), (T, &'a U)) -> bool,
 }
 
 /// Expand the tree by one level
-fn expand_one_level<I, P, T>(tree: &mut Tree<I, P, T>, node_id: NodeId)
+fn expand_one_level<M, P, T>(tree: &mut Tree<M, P, T>, node_id: NodeId)
     where
-        I: Initialize + Copy + Clone,
+        M: Initialize + Copy + Clone,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<Index=I, Player=P> + Clone {
+        T: Game<Move=M, Player=P> + Clone {
 
-    let make_move = |ptot: usize, state: &T, index: &I| {
+    let make_move = |ptot: usize, state: &T, index: &M| {
         let new_state = state.mv(index);
         let next_player = new_state.current_player();
         (next_player, Score::new(ptot), new_state)
     };
 
     let add_node =
-        |index: I, player: P, score: Score, state: T, t: &mut Tree<I, P , T>| {
+        |index: M, player: P, score: Score, state: T, t: &mut Tree<M, P , T>| {
         let new_node = t.new_node(Cell { index, player, score, state });
         node_id.append(new_node, t).unwrap();
         new_node
@@ -225,12 +225,12 @@ fn expand_one_level<I, P, T>(tree: &mut Tree<I, P, T>, node_id: NodeId)
 }
 
 /// The core of the function that carries out simulations
-fn _playout_aux<I, P, T>(player: P, node_id: NodeId, tree: &mut Tree<I, P, T>)
+fn _playout_aux<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
                         -> Outcome
     where
-        I: Initialize + Copy + Clone + Eq,
+        M: Initialize + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<Index=I, Player=P> + Clone {
+        T: Game<Move=M, Player=P> + Clone {
     match node_id.node_type(tree) {
         NodeType::Node => {
             // TODO: Consider renaming this to something more descriptive
@@ -269,25 +269,25 @@ fn _playout_aux<I, P, T>(player: P, node_id: NodeId, tree: &mut Tree<I, P, T>)
 }
 
 /// Perform playouts of the game
-fn playout<I, P, T>(player: P, node: NodeId, tree: &mut Tree<I, P, T>)
+fn playout<M, P, T>(player: P, node: NodeId, tree: &mut Tree<M, P, T>)
     where
-        I: Initialize + Copy + Clone + Eq,
+        M: Initialize + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<Index=I, Player=P> + Clone {
+        T: Game<Move=M, Player=P> + Clone {
     let _ = _playout_aux(player, node, tree);
 }
 
 /// Pick the most favorable move from the current game state
-pub fn most_favored_move<I, P, T>(maxiter: usize, game_state: &T,
-                                  dbg: &Debug) -> I
+pub fn most_favored_move<M, P, T>(maxiter: usize, game_state: &T,
+                                  dbg: &Debug) -> M
     where
-        I: Initialize + Copy + Clone + Eq + fmt::Display,
+        M: Initialize + Copy + Clone + Eq + fmt::Display,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<Index=I, Player=P> + Clone {
+        T: Game<Move=M, Player=P> + Clone {
     let player = game_state.current_player();
     let init_score = Score::new(1);
     let mut tree = Tree::new();
-    let i_init: I = Initialize::new();
+    let i_init: M = Initialize::new();
     let state = game_state.clone();
     let root_node = tree.new_node(Cell {
        index: i_init,

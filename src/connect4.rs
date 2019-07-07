@@ -11,16 +11,17 @@ extern crate rand;
 extern crate unicode_segmentation;
 
 use std::{fmt, num, str};
-use mcts_core::{Debug, Initialize, Game, Status};
-use ui::{Interactive, PlayerKind, Builder, Turing};
-use ui::terminal;
 
 use console::{Style, Term};
 use itertools::Itertools;
 use unicode_segmentation::UnicodeSegmentation;
 
-mod mcts_core;
+mod mcts;
 mod ui;
+
+use mcts::{Debug, Initialize, Game, Status};
+use ui::{Interactive, PlayerKind, Builder, Turing};
+use ui::terminal;
 
 /// Bit-board representation of the winning configurations. The configurations
 /// from smallest to largest represent configurations from lower left corner to
@@ -198,7 +199,7 @@ struct ConnectFourState {
 }
 
 impl Game for ConnectFourState {
-    type Index = Index;
+    type Move = Index;
     type Player = Player;
 
     fn new(players: Vec<Player>) -> Self {
