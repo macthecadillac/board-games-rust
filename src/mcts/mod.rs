@@ -92,6 +92,7 @@ pub enum Debug { Debug, Release }
 /// The cell in indextree. This is useful for storing the index that
 /// parametrizes a move, the player that made the move, the score of the branch,
 /// and the game state at this point in the game.
+#[derive(Clone)]
 struct Cell<M, P, T> {
     /// The index of a move
     index: M,
@@ -181,10 +182,10 @@ fn expand_one_level<M, P, T>(tree: &mut Tree<M, P, T>, node_id: NodeId)
         P: fmt::Display + Eq + Clone + Copy,
         T: Game<Move=M, Player=P> + Clone {
 
-    let make_move = |ptot: usize, state: &T, index: &M| {
+    let make_move = |parent_total: usize, state: &T, index: &M| {
         let new_state = state.mv(index);
         let next_player = new_state.current_player();
-        (next_player, Score::new(ptot), new_state)
+        (next_player, Score::new(parent_total), new_state)
     };
 
     let add_node =
@@ -201,9 +202,9 @@ fn expand_one_level<M, P, T>(tree: &mut Tree<M, P, T>, node_id: NodeId)
                 &[] => panic!("Expansion error"),
                 moves => moves.iter().for_each(|&index| {
                     let (player, score, state) = {
-                        let ptot = tree[node_id].data.score.total();
+                        let parent_total = tree[node_id].data.score.total();
                         let state = &tree[node_id].data.state;
-                        make_move(ptot, state, &index)
+                        make_move(parent_total, state, &index)
                     };
                     if player != tree[node_id].data.player {
                         add_node(index, player, score, state, tree);
@@ -268,13 +269,31 @@ fn _playout_aux<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
     }
 }
 
+/// Append tree2 to the given node. Assumes "start_node" is the same as "node"
+/// in tree1 and skips that during the operation.
+fn append_tree<T>(tree1: &mut Arena<T>, node: NodeId,
+                  tree2: &Arena<T>, start_node: NodeId, indx: usize)
+    where T: Clone {
+    println!("{}", indx);
+    for i in start_node.children(tree2) {
+        let child_node = tree1.new_node(tree2[i].data.clone());
+        node.append(child_node, tree1).unwrap();
+        for j in child_node.children(tree2) {
+            append_tree(tree1, child_node, tree2, j, indx + 1);
+        }
+    };
+}
+
 /// Perform playouts of the game
-fn playout<M, P, T>(player: P, node: NodeId, tree: &mut Tree<M, P, T>)
+fn playout<M, P, T>(player: P, node: &Cell<M, P, T>) -> (NodeId, Tree<M, P, T>)
     where
         M: Initialize + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
         T: Game<Move=M, Player=P> + Clone {
-    let _ = _playout_aux(player, node, tree);
+    let mut tree = Tree::new();
+    let root_node = tree.new_node(node.clone());
+    let _ = _playout_aux(player, root_node, &mut tree);
+    (root_node, tree)
 }
 
 /// Pick the most favorable move from the current game state
@@ -289,15 +308,13 @@ pub fn most_favored_move<M, P, T>(maxiter: usize, game_state: &T,
     let mut tree = Tree::new();
     let i_init: M = Initialize::new();
     let state = game_state.clone();
-    let root_node = tree.new_node(Cell {
-       index: i_init,
-       player,
-       score: init_score,
-       state
-    });
+    let cell = Cell { index: i_init, player, score: init_score, state };
+    let root_node = tree.new_node(cell.clone());
 
-    for _ in 0..maxiter {
-        playout(player, root_node, &mut tree)
+    for i in 0..maxiter {
+        let (rootv2, treev2) = playout(player, &cell);
+        append_tree(&mut tree, root_node, &treev2, rootv2, 1);
+        println!("Finished play-out {}", i);
     }
 
     match dbg {

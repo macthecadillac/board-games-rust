@@ -17,6 +17,7 @@ use itertools::Itertools;
 use unicode_segmentation::UnicodeSegmentation;
 
 mod mcts;
+mod tree;
 mod ui;
 
 use mcts::{Debug, Initialize, Game, Status};
