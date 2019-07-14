@@ -1,5 +1,6 @@
 use std::fmt;
 use std::cmp;
+use std::ops::AddAssign;
 
 use indextree::{Arena, NodeId};
 use rand::seq::SliceRandom;
@@ -93,7 +94,11 @@ pub enum Debug { Debug, Release }
 /// parametrizes a move, the player that made the move, the score of the branch,
 /// and the game state at this point in the game.
 #[derive(Clone)]
-struct Cell<M, P, T> {
+struct Cell<M, P, T>
+    where
+        M: PartialEq + Eq + Clone,
+        P: PartialEq + Eq + Clone,
+        T: PartialEq + Eq + Clone {
     /// The index of a move
     index: M,
     /// The player that made the move
@@ -102,6 +107,34 @@ struct Cell<M, P, T> {
     score: Score,
     /// The current game state
     state: T
+}
+
+impl<M, P, T> PartialEq for Cell<M, P, T>
+    where
+        M: PartialEq + Eq + Clone,
+        P: PartialEq + Eq + Clone,
+        T: PartialEq + Eq + Clone {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.index == rhs.index && self.player == rhs.player
+    }
+}
+
+impl<M, P, T> Eq for Cell<M, P, T>
+    where
+        M: PartialEq + Eq + Clone,
+        P: PartialEq + Eq + Clone,
+        T: PartialEq + Eq + Clone {}
+
+// FIXME: This implementation is deceiving: the compiler still forces you to
+// pass in the rhs by value and does not accept a reference
+impl<'a, M, P, T> AddAssign<&'a Cell<M, P, T>> for Cell<M, P, T>
+    where
+        M: PartialEq + Eq + Clone,
+        P: PartialEq + Eq + Clone,
+        T: PartialEq + Eq + Clone {
+    fn add_assign(&mut self, rhs: &'a Cell<M, P, T>) {
+        self.score += &rhs.score
+    }
 }
 
 /// Type alias of `Arena<Cell<M, P, T>>`
@@ -113,7 +146,11 @@ type Node<M, P, T> = indextree::Node<Cell<M, P, T>>;
 /// Generic function that compares two nodes using a user provided function.
 fn comp<T, U, V, O>(func: fn(&Score, &Score) -> O,
                     a: (NodeId, &Node<T, U, V>),
-                    b: (NodeId, &Node<T, U, V>)) -> O {
+                    b: (NodeId, &Node<T, U, V>)) -> O
+    where
+        T: PartialEq + Eq + Clone,
+        U: PartialEq + Eq + Clone,
+        V: PartialEq + Eq + Clone {
     let (_, node_a) = a;
     let (_, node_b) = b;
     func(&node_a.data.score, &node_b.data.score)
@@ -122,27 +159,43 @@ fn comp<T, U, V, O>(func: fn(&Score, &Score) -> O,
 /// Comparison test for nodes, using `Score::gt_self`. See documentation of that
 /// function.
 fn fav_score_self<T, U, V>(a: (NodeId, &Node<T, U, V>),
-                           b: (NodeId, &Node<T, U, V>)) -> bool {
+                           b: (NodeId, &Node<T, U, V>)) -> bool
+    where
+        T: PartialEq + Eq + Clone,
+        U: PartialEq + Eq + Clone,
+        V: PartialEq + Eq + Clone {
     comp(Score::gt_self, a, b)
 }
 
 /// Comparison test for nodes, using `Score::gt_other`. See documentation of that
 /// function.
 fn fav_score_other<T, U, V>(a: (NodeId, &Node<T, U, V>),
-                            b: (NodeId, &Node<T, U, V>)) -> bool {
+                            b: (NodeId, &Node<T, U, V>)) -> bool
+    where
+        T: PartialEq + Eq + Clone,
+        U: PartialEq + Eq + Clone,
+        V: PartialEq + Eq + Clone {
     comp(Score::gt_other, a, b)
 }
 
 /// Comparison test for nodes, using `Score::feq`. See documentation of that
 /// function.
 fn score_eq<T, U, V>(a: (NodeId, &Node<T, U, V>),
-                     b: (NodeId, &Node<T, U, V>)) -> bool {
+                     b: (NodeId, &Node<T, U, V>)) -> bool
+    where
+        T: PartialEq + Eq + Clone,
+        U: PartialEq + Eq + Clone,
+        V: PartialEq + Eq + Clone {
     comp(Score::feq, a, b)
 }
 
 /// Comparison test of nodes
 fn _gt<T, U, V>(a: (NodeId, &Node<T, U, V>),
-                b: (NodeId, &Node<T, U, V>)) -> bool {
+                b: (NodeId, &Node<T, U, V>)) -> bool
+    where
+        T: PartialEq + Eq + Clone,
+        U: PartialEq + Eq + Clone,
+        V: PartialEq + Eq + Clone {
     match comp(Score::cmp, a, b) {
         cmp::Ordering::Greater => true,
         _ => false
@@ -151,7 +204,11 @@ fn _gt<T, U, V>(a: (NodeId, &Node<T, U, V>),
 
 /// Equality test of nodes
 fn _eq<T, U, V>(a: (NodeId, &Node<T, U, V>),
-                b: (NodeId, &Node<T, U, V>)) -> bool {
+                b: (NodeId, &Node<T, U, V>)) -> bool
+    where
+        T: PartialEq + Eq + Clone,
+        U: PartialEq + Eq + Clone,
+        V: PartialEq + Eq + Clone {
     comp(Score::eq, a, b)
 }
 
@@ -178,9 +235,9 @@ fn pick<'a, T, U, V>(greater: fn((T, &'a U), (T, &'a U)) -> bool,
 /// Expand the tree by one level
 fn expand_one_level<M, P, T>(tree: &mut Tree<M, P, T>, node_id: NodeId)
     where
-        M: Initialize + Copy + Clone,
+        M: Initialize + PartialEq + Eq + Copy + Clone,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<Move=M, Player=P> + Clone {
+        T: Game<Move=M, Player=P> + Eq + Clone {
 
     let make_move = |parent_total: usize, state: &T, index: &M| {
         let new_state = state.mv(index);
@@ -231,7 +288,7 @@ fn _playout_aux<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
     where
         M: Initialize + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<Move=M, Player=P> + Clone {
+        T: Game<Move=M, Player=P> + Eq + Clone {
     match node_id.node_type(tree) {
         NodeType::Node => {
             // TODO: Consider renaming this to something more descriptive
@@ -271,16 +328,35 @@ fn _playout_aux<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
 
 /// Append tree2 to the given node. Assumes "start_node" is the same as "node"
 /// in tree1 and skips that during the operation.
-fn append_tree<T>(tree1: &mut Arena<T>, node: NodeId,
+fn append_tree<'a, T>(tree1: &mut Arena<T>, node: NodeId,
                   tree2: &Arena<T>, start_node: NodeId, indx: usize)
-    where T: Clone {
-    println!("{}", indx);
+    where for <'b> T: AddAssign<&'b T>,
+        T: Clone + PartialEq + Eq {
+    println!("\t{}", indx);
+    println!("About to index (336)");
     for i in start_node.children(tree2) {
-        let child_node = tree1.new_node(tree2[i].data.clone());
-        node.append(child_node, tree1).unwrap();
-        for j in child_node.children(tree2) {
-            append_tree(tree1, child_node, tree2, j, indx + 1);
-        }
+        if tree1[node].data == tree2[i].data {
+            // there might be a compiler bug somewhere that we can't add_assign
+            // by reference
+            println!("Successfully indexed");
+            println!("About to index (342)");
+            tree1[node].data += &tree2[i].data;
+            println!("Successfully indexed");
+            for j in node.children(tree2) {
+                append_tree(tree1, node, tree2, j, indx + 1);
+            }
+        } else {
+            println!("Successfully indexed");
+            println!("About to index (350)");
+            let child_node = tree1.new_node(tree2[i].data.clone());
+            println!("Successfully indexed");
+            node.append(child_node, tree1).unwrap();
+            println!("Unwrapped");
+            for j in child_node.children(tree2) {
+                append_tree(tree1, child_node, tree2, j, indx + 1);
+            }
+            println!("Finished loop");
+        };
     };
 }
 
@@ -289,7 +365,7 @@ fn playout<M, P, T>(player: P, node: &Cell<M, P, T>) -> (NodeId, Tree<M, P, T>)
     where
         M: Initialize + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<Move=M, Player=P> + Clone {
+        T: Game<Move=M, Player=P> + Eq + Clone {
     let mut tree = Tree::new();
     let root_node = tree.new_node(node.clone());
     let _ = _playout_aux(player, root_node, &mut tree);
@@ -302,7 +378,7 @@ pub fn most_favored_move<M, P, T>(maxiter: usize, game_state: &T,
     where
         M: Initialize + Copy + Clone + Eq + fmt::Display,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<Move=M, Player=P> + Clone {
+        T: Game<Move=M, Player=P> + Eq + Clone {
     let player = game_state.current_player();
     let init_score = Score::new(1);
     let mut tree = Tree::new();
