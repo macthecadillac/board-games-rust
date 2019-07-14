@@ -108,7 +108,7 @@ pub mod terminal {
             M: Initialize + Eq + Copy + str::FromStr + fmt::Display,
             P: Turing + Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
-                crate::Interactive<M> + fmt::Display + Clone
+               crate::Interactive<M> + Eq + fmt::Display + Clone
     {
         let mut game_state: T = Game::new(players);
         println!("\n{}", game_state);
@@ -169,7 +169,7 @@ pub mod terminal {
             M: Initialize + Eq + Copy + fmt::Display + str::FromStr,
             P: Builder + Turing + Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
-                crate::Interactive<M> + Clone + fmt::Display {
+                crate::Interactive<M> + Eq + Clone + fmt::Display {
         let args = App::new(name)
             .author(crate_authors!())
             .about("A board game with an optional Monte-Carlo based AI")

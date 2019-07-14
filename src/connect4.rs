@@ -183,7 +183,7 @@ impl fmt::Binary for BitBoard {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 /// The ConnectFourState struct. This is the internal representation of the
 /// game state during play.
 struct ConnectFourState {
