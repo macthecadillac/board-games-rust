@@ -42,7 +42,7 @@ impl Score {
                 q: 0.5, u: 0., win: 0, loss: 0, draw: 1, total: 1, parent_total: 0
             }
         };
-        *self += delta;
+        *self += &delta;
     }
 
     /// Tests float congruence
@@ -86,7 +86,7 @@ impl<'a> Add<&'a Score> for &'a Score {
         let u = 1. / (self.total + rhs.total) as f32;
         let win = self.win + rhs.win;
         let total = self.total + rhs.total;
-        let parent_total = self.parent_total + rhs.parent_total;
+        let parent_total = self.parent_total + 1;
         let loss = self.loss + rhs.loss;
         let draw = self.draw + rhs.draw;
         let q = 0.5 * (2 * win + draw) as f32 / total as f32;
@@ -94,8 +94,8 @@ impl<'a> Add<&'a Score> for &'a Score {
     }
 }
 
-impl AddAssign for Score {
-    fn add_assign(&mut self, rhs: Score) {
+impl<'a> AddAssign<&'a Score> for Score {
+    fn add_assign(&mut self, rhs: &'a Score) {
         let u = 1. / (self.total + rhs.total) as f32;
         let win = self.win + rhs.win;
         let total = self.total + rhs.total;
