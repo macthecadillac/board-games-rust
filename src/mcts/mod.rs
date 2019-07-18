@@ -207,16 +207,37 @@ fn pick<'a, T, U, V>(greater: fn((T, &'a U), (T, &'a U)) -> bool,
     where
         T: Copy,
         V: Iterator<Item=(T, &'a U)> {
+    let iter = l.zip(vec![None].into_iter().cycle());
+    let (x, _) = pick_opt(greater, eq, iter);
+    x
+}
+
+/// Pick according to the criterion given (as function f). When undecided,
+/// randomly pick one from among the equals.
+fn pick_opt<'a, T, U, V>(greater: fn((T, &'a U), (T, &'a U)) -> bool,
+                         eq: fn((T, &'a U), (T, &'a U)) -> bool,
+                         l: V) -> (T, Option<T>)
+    where
+        T: Copy,
+        V: Iterator<Item=((T, &'a U), Option<(T, &'a U)>)> {
     let mut peekable = l.peekable();
     let first = *peekable.peek().unwrap();
-    let max = peekable.fold(vec![first], |mut eqs, x| {
-        if greater(x, eqs[0]) { vec![x] }
-        else if eq(x, eqs[0]) { eqs.push(x); eqs }
-        else { eqs }
-    });
+    let max = match first {
+        // None on the right means there is no old data to go off with. Proceed
+        // to random selection
+        (_, None) => peekable.collect::<Vec<_>>(),
+        (_, Some(_)) =>
+            peekable.fold(vec![first], |mut eqs, (x, y)| {
+                if greater(y.unwrap(), eqs[0].1.unwrap()) { vec![(x, y)] }
+                else if eq(y.unwrap(), eqs[0].1.unwrap()) { eqs.push((x, y)); eqs }
+                else { eqs }
+            })
+    };
     let mut r = rand::thread_rng();
-    let (a, _) = *max[..].choose(&mut r).unwrap();
-    a
+    match *max[..].choose(&mut r).unwrap() {
+        ((a, _), None) => (a, None),
+        ((a, _), Some((x, _))) => (a, Some(x))
+    }
 }
 
 /// Expand the tree by one level
@@ -270,59 +291,76 @@ fn expand_one_level<M, P, T>(tree: &mut Tree<M, P, T>, node_id: NodeId)
 }
 
 /// The core of the function that carries out simulations
-fn _playout_aux<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
+fn _playout_aux<M, P, T>(player: P,
+                         tmp_node_id: NodeId, tmp_tree: &mut Tree<M, P, T>,
+                         node_id_opt: Option<NodeId>, tree: &Tree<M, P, T>)
                         -> Outcome
     where
         M: Initialize + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
         T: Game<Move=M, Player=P> + Eq + Clone {
-    match node_id.node_type(tree) {
-        NodeType::Node => {
-            // TODO: Consider renaming this to something more descriptive
-            let branch: NodeId = {
-                let nodes = node_id.children(tree).map(|x| (x, &tree[x]));
-                if tree[node_id].data.player == player {
-                    pick(fav_score_self, score_eq, nodes)
-                } else {
-                    pick(fav_score_other, score_eq, nodes)
+
+    match tmp_tree[tmp_node_id].data.state.status() {
+        Status::Finished => {
+            let outcome = match tmp_tree[tmp_node_id].data.state.winner() {
+                None => Outcome::Draw,
+                Some(p) => {
+                    if p == player { Outcome::Win }
+                    else { Outcome::Loss }
                 }
             };
-            let outcome = _playout_aux(player, branch, tree);
-            tree[node_id].data.score.update(outcome);
+            tmp_tree[tmp_node_id].data.score.update(outcome);
             outcome
         },
-        NodeType::Leaf => {
-            match tree[node_id].data.state.status() {
-                Status::Finished => {
-                    let outcome = match tree[node_id].data.state.winner() {
-                        None => Outcome::Draw,
-                        Some(p) => {
-                            if p == player { Outcome::Win }
-                            else { Outcome::Loss }
-                        }
-                    };
-                    tree[node_id].data.score.update(outcome);
-                    outcome
-                },
-                Status::Ongoing => {
-                    expand_one_level(tree, node_id);
-                    _playout_aux(player, node_id, tree)
+        Status::Ongoing => {
+            expand_one_level(tmp_tree, tmp_node_id);
+            let choose_branches = || {
+                let nodes = tmp_node_id.children(tmp_tree)
+                    .map(|x| (x, &tmp_tree[x]));
+                if tmp_tree[tmp_node_id].data.player == player {
+                    (pick(fav_score_self, score_eq, nodes), None)
+                } else {
+                    (pick(fav_score_other, score_eq, nodes), None)
                 }
-            }
+            };
+            let (tmp_branch, branch) = match node_id_opt {
+                None => choose_branches(),
+                Some(node_id) => {
+                    match node_id.node_type(tree) {
+                        NodeType::Leaf => choose_branches(),
+                        NodeType::Node => {
+                            let nodes = tmp_node_id.children(tmp_tree)
+                                .map(|x| (x, &tmp_tree[x]))
+                                .zip(node_id.children(tree)
+                                     .map(|x| Some((x, &tree[x]))));
+                            if tmp_tree[tmp_node_id].data.player == player {
+                                pick_opt(fav_score_self, score_eq, nodes)
+                            } else {
+                                pick_opt(fav_score_other, score_eq, nodes)
+                            }
+                        }
+                    }
+                }
+            };
+            let outcome = _playout_aux(player, tmp_branch, tmp_tree, branch, tree);
+            tmp_tree[tmp_node_id].data.score.update(outcome);
+            outcome
         }
     }
 }
 
 /// Perform playouts of the game
-fn playout<M, P, T>(player: P, node: &Cell<M, P, T>) -> (NodeId, Tree<M, P, T>)
+fn playout<M, P, T>(player: P, root_node: NodeId, tree: &Tree<M, P, T>)
+                   -> (NodeId, Tree<M, P, T>)
     where
         M: Initialize + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
         T: Game<Move=M, Player=P> + Eq + Clone {
-    let mut tree = Tree::new();
-    let root_node = tree.new_node(node.clone());
-    let _ = _playout_aux(player, root_node, &mut tree);
-    (root_node, tree)
+    let mut tmp_tree = Tree::new();
+    let root_node_data = tree[root_node].data.clone();
+    let tmp_root_node = tmp_tree.new_node(root_node_data);
+    let _ = _playout_aux(player, tmp_root_node, &mut tmp_tree, Some(root_node), tree);
+    (root_node, tmp_tree)
 }
 
 /// Append tree2 to the given node. Assumes "start_node" is the same as "node"
@@ -337,6 +375,16 @@ fn append_tree<'a, M, P, T>(tree1: &mut Tree<M, P, T>, node: NodeId,
         NodeType::Leaf => (),
         NodeType::Node => {
             match node.node_type(tree1) {
+                NodeType::Leaf => {
+                    // Add all the first-level descendents before moving on to
+                    // the next level so that we don't need to test for equality
+                    // of cells later, which helps performance
+                    for i in start_node.children(tree2) {
+                        let child_node = tree1.new_node(tree2[i].data.clone());
+                        node.append(child_node, tree1).unwrap();
+                    };
+                    append_tree(tree1, node, tree2, start_node);
+                },
                 NodeType::Node => {
                     node.children(tree1)
                         .zip(start_node.children(tree2))
@@ -344,17 +392,9 @@ fn append_tree<'a, M, P, T>(tree1: &mut Tree<M, P, T>, node: NodeId,
                         .collect::<Vec<_>>()
                         .into_iter()
                         .for_each(|(i, j)| {
-                            let score2 = &tree2[j].data.score;
-                            tree1[i].data.score += score2;
-                            append_tree(tree1, i, tree2, j, indx + 1);
+                            tree1[i].data.score += &tree2[j].data.score;
+                            append_tree(tree1, i, tree2, j);
                         })
-                },
-                NodeType::Leaf => {
-                    for i in start_node.children(tree2) {
-                        let child_node = tree1.new_node(tree2[i].data.clone());
-                        node.append(child_node, tree1).unwrap();
-                        append_tree(tree1, child_node, tree2, i, indx + 1);
-                    };
                 }
             }
         }
@@ -373,13 +413,12 @@ pub fn most_favored_move<M, P, T>(maxiter: usize, game_state: &T,
     let mut tree = Tree::new();
     let i_init: M = Initialize::new();
     let state = game_state.clone();
-    let cell = Cell { index: i_init, player, score: init_score, state };
-    let root_node = tree.new_node(cell.clone());
+    let init_cell = Cell { index: i_init, player, score: init_score, state };
+    let root_node = tree.new_node(init_cell);
 
-    for i in 0..maxiter {
-        let (rootv2, treev2) = playout(player, &cell);
-        append_tree(&mut tree, root_node, &treev2, rootv2, 1);
-        println!("Finished play-out {}", i);
+    for _ in 0..maxiter {
+        let (rootv2, treev2) = playout(player, root_node, &tree);
+        append_tree(&mut tree, root_node, &treev2, rootv2);
     }
 
     match dbg {
