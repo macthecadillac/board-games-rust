@@ -1,4 +1,4 @@
-use std::ops::AddAssign;
+use std::ops::{Add, AddAssign};
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -17,13 +17,13 @@ pub struct Score {
     draw: usize,
     /// The total numeber of games simulated so far
     total: usize,
-    ptot: usize
+    parent_total: usize
 }
 
 impl Score {
     /// Create a new Score struct
-    pub fn new(ptot: usize) -> Self {
-        Score { q: 1., u: 1., win: 0, loss: 0, draw: 0, total: 0, ptot }
+    pub fn new(parent_total: usize) -> Self {
+        Score { q: 1., u: 1., win: 0, loss: 0, draw: 0, total: 0, parent_total }
     }
 
     /// Return the total number of games played
@@ -33,16 +33,16 @@ impl Score {
     pub fn update(&mut self, outcome: Outcome) {
         let delta = match outcome {
             Outcome::Win => Score {
-                q: 1., u: 0., win: 1, loss: 0, draw: 0, total: 1, ptot: 0
+                q: 1., u: 0., win: 1, loss: 0, draw: 0, total: 1, parent_total: 0
             },
             Outcome::Loss => Score {
-                q: 0., u: 0., win: 0, loss: 1, draw: 0, total: 1, ptot: 0
+                q: 0., u: 0., win: 0, loss: 1, draw: 0, total: 1, parent_total: 0
             },
             Outcome::Draw => Score {
-                q: 0.5, u: 0., win: 0, loss: 0, draw: 1, total: 1, ptot: 0
+                q: 0.5, u: 0., win: 0, loss: 0, draw: 1, total: 1, parent_total: 0
             }
         };
-        *self += delta;
+        *self += &delta;
     }
 
     /// Tests float congruence
@@ -79,16 +79,31 @@ impl Score {
     }
 }
 
-impl AddAssign for Score {
-    fn add_assign(&mut self, rhs: Score) {
+impl<'a> Add<&'a Score> for &'a Score {
+    type Output = Score;
+
+    fn add(self, rhs: Self) -> Score {
         let u = 1. / (self.total + rhs.total) as f32;
         let win = self.win + rhs.win;
         let total = self.total + rhs.total;
-        let ptot = self.ptot + 1;
+        let parent_total = self.parent_total + self.parent_total;
         let loss = self.loss + rhs.loss;
         let draw = self.draw + rhs.draw;
         let q = 0.5 * (2 * win + draw) as f32 / total as f32;
-        *self = Score { q, u, win, loss, draw, total, ptot };
+        Score { q, u, win, loss, draw, total, parent_total }
+    }
+}
+
+impl<'a> AddAssign<&'a Score> for Score {
+    fn add_assign(&mut self, rhs: &'a Score) {
+        let u = 1. / (self.total + rhs.total) as f32;
+        let win = self.win + rhs.win;
+        let total = self.total + rhs.total;
+        let parent_total = self.parent_total + 1;
+        let loss = self.loss + rhs.loss;
+        let draw = self.draw + rhs.draw;
+        let q = 0.5 * (2 * win + draw) as f32 / total as f32;
+        *self = Score { q, u, win, loss, draw, total, parent_total };
     }
 }
 
@@ -113,9 +128,9 @@ impl fmt::Display for Score {
         write!(
             f,
            "(q: {:0<12}, u: {:0<12}, win: {}, draw: {}, loss: {}, total: {}, \
-            ptot: {})\tscore = {}",
+            parent_total: {})\tscore = {}",
             self.q, self.u, self.win, self.draw, self.loss, self.total,
-            self.ptot, self.score_self()
+            self.parent_total, self.score_self()
         )
     }
 }

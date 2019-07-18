@@ -29,7 +29,7 @@ pub mod terminal {
     use clap::{Arg, App};
 
     use crate::mcts;
-    use crate::mcts::{Debug, Game, Initialize, Status};
+    use crate::mcts::{Debug, Game, Initialize, Status, AsUsize};
 
     use super::{PlayerKind, Turing, Builder};
 
@@ -56,7 +56,7 @@ pub mod terminal {
     /// again if the input was invalid.
     fn acquire_input<T, M, P>(game_state: &T) -> M
         where
-            M: Initialize + Eq + Copy + str::FromStr,
+            M: Initialize + AsUsize + Eq + Copy + str::FromStr,
             P: Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> {
         loop {
@@ -82,7 +82,7 @@ pub mod terminal {
     /// Clean up, print what needs to be printed, and exit the game
     fn exit<T, M, P>(game_state: &T, debug: &Debug) -> Result<(), Error>
         where
-            M: Initialize + Eq + Copy + str::FromStr,
+            M: Initialize + AsUsize + Eq + Copy + str::FromStr,
             P: Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
                 crate::Interactive<M> + fmt::Display {
@@ -105,7 +105,7 @@ pub mod terminal {
     fn game_loop<T, M, P>(nplayouts: usize, players: Vec<P>,
                           debug: Debug) -> Result<(), Error>
         where
-            M: Initialize + Eq + Copy + str::FromStr + fmt::Display,
+            M: Initialize + AsUsize + Eq + Copy + str::FromStr + fmt::Display,
             P: Turing + Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
                 crate::Interactive<M> + fmt::Display + Clone
@@ -166,7 +166,7 @@ pub mod terminal {
     /// repository for example usage.
     pub fn launch_game<T, M, P>(name: &str) -> Result<(), Error>
         where
-            M: Initialize + Eq + Copy + fmt::Display + str::FromStr,
+            M: Initialize + AsUsize + Eq + Copy + fmt::Display + str::FromStr,
             P: Builder + Turing + Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
                 crate::Interactive<M> + Clone + fmt::Display {

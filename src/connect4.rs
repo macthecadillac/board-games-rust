@@ -20,7 +20,7 @@ mod mcts;
 mod tree;
 mod ui;
 
-use mcts::{Debug, Initialize, Game, Status};
+use mcts::{Debug, Initialize, Game, Status, AsUsize};
 use ui::{Interactive, PlayerKind, Builder, Turing};
 use ui::terminal;
 
@@ -138,12 +138,14 @@ impl Initialize for Index {
     fn new() -> Self { Index(0) }
 }
 
-impl Index {
+impl AsUsize for Index {
     fn as_usize(&self) -> usize {
         let Index(i) = *self;
         i as usize
     }
+}
 
+impl Index {
     fn inc(&self) -> Self { *self + Index(1) }
 
     fn dec(&self) -> Self { *self - Index(1) }
