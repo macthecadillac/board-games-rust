@@ -80,19 +80,18 @@ impl Score {
 }
 
 fn _add<'a>(a: &'a Score, b: &'a Score) -> Score {
-    let u = 1. / (a.total + b.total) as f32;
     let win = a.win + b.win;
     let total = a.total + b.total;
-    let parent_total = a.parent_total + 1;
+    let parent_total = a.parent_total + 1;  // FIXME: known to be wrong
     let loss = a.loss + b.loss;
     let draw = a.draw + b.draw;
+    let u = 1. / total as f32;
     let q = 0.5 * (2 * win + draw) as f32 / total as f32;
     Score { q, u, win, loss, draw, total, parent_total }
 }
 
 impl<'a> Add<&'a Score> for &'a Score {
     type Output = Score;
-
     fn add(self, rhs: &'a Score) -> Score { _add(self, rhs) }
 }
 
