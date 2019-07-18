@@ -324,40 +324,6 @@ fn _playout_aux<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
     }
 }
 
-/// Append tree2 to the given node. Assumes "start_node" is the same as "node"
-/// in tree1 and skips that during the operation.
-fn append_tree<'a, T>(tree1: &mut Arena<T>, node: NodeId,
-                  tree2: &Arena<T>, start_node: NodeId, indx: usize)
-    where for <'b> T: AddAssign<&'b T>,
-        T: Clone + PartialEq + Eq {
-    println!("\t{}", indx);
-    println!("About to index (336)");
-    for i in start_node.children(tree2) {
-        if tree1[node].data == tree2[i].data {
-            // there might be a compiler bug somewhere that we can't add_assign
-            // by reference
-            println!("Successfully indexed");
-            println!("About to index (342)");
-            tree1[node].data += &tree2[i].data;
-            println!("Successfully indexed");
-            for j in node.children(tree2) {
-                append_tree(tree1, node, tree2, j, indx + 1);
-            }
-        } else {
-            println!("Successfully indexed");
-            println!("About to index (350)");
-            let child_node = tree1.new_node(tree2[i].data.clone());
-            println!("Successfully indexed");
-            node.append(child_node, tree1).unwrap();
-            println!("Unwrapped");
-            for j in child_node.children(tree2) {
-                append_tree(tree1, child_node, tree2, j, indx + 1);
-            }
-            println!("Finished loop");
-        };
-    };
-}
-
 /// Perform playouts of the game
 fn playout<M, P, T>(player: P, node: &Cell<M, P, T>) -> (NodeId, Tree<M, P, T>)
     where
@@ -368,6 +334,43 @@ fn playout<M, P, T>(player: P, node: &Cell<M, P, T>) -> (NodeId, Tree<M, P, T>)
     let root_node = tree.new_node(node.clone());
     let _ = _playout_aux(player, root_node, &mut tree);
     (root_node, tree)
+}
+
+/// Append tree2 to the given node. Assumes "start_node" is the same as "node"
+/// in tree1 and skips that during the operation.
+fn append_tree<'a, M, P, T>(tree1: &mut Tree<M, P, T>, node: NodeId,
+                  tree2: &Tree<M, P, T>, start_node: NodeId, indx: usize)
+    where
+        M: Initialize + Copy + Clone + Eq,
+        P: fmt::Display + Eq + Clone + Copy,
+        T: Game<Move=M, Player=P> + Eq + Clone {
+    println!("\t{}", indx);
+    match start_node.node_type(tree2) {
+        NodeType::Leaf => (),
+        NodeType::Node => {
+            match node.node_type(tree1) {
+                NodeType::Node => {
+                    node.children(tree1)
+                        .zip(start_node.children(tree2))
+                        // terminate borrow so we can mutate later
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .for_each(|(i, j)| {
+                            let score2 = &tree2[j].data.score;
+                            tree1[i].data.score += score2;
+                            append_tree(tree1, i, tree2, j, indx + 1);
+                        })
+                },
+                NodeType::Leaf => {
+                    for i in start_node.children(tree2) {
+                        let child_node = tree1.new_node(tree2[i].data.clone());
+                        node.append(child_node, tree1).unwrap();
+                        append_tree(tree1, child_node, tree2, i, indx + 1);
+                    };
+                }
+            }
+        }
+    };
 }
 
 /// Pick the most favorable move from the current game state
