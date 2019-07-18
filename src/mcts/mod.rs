@@ -115,7 +115,7 @@ impl<M, P, T> PartialEq for Cell<M, P, T>
         P: PartialEq + Eq + Clone,
         T: PartialEq + Eq + Clone {
     fn eq(&self, rhs: &Self) -> bool {
-        self.index == rhs.index && self.player == rhs.player
+        self.state == rhs.state
     }
 }
 
