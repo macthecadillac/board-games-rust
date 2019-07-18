@@ -79,32 +79,25 @@ impl Score {
     }
 }
 
+fn _add<'a>(a: &'a Score, b: &'a Score) -> Score {
+    let u = 1. / (a.total + b.total) as f32;
+    let win = a.win + b.win;
+    let total = a.total + b.total;
+    let parent_total = a.parent_total + 1;
+    let loss = a.loss + b.loss;
+    let draw = a.draw + b.draw;
+    let q = 0.5 * (2 * win + draw) as f32 / total as f32;
+    Score { q, u, win, loss, draw, total, parent_total }
+}
+
 impl<'a> Add<&'a Score> for &'a Score {
     type Output = Score;
 
-    fn add(self, rhs: &'a Score) -> Score {
-        let u = 1. / (self.total + rhs.total) as f32;
-        let win = self.win + rhs.win;
-        let total = self.total + rhs.total;
-        let parent_total = self.parent_total + 1;
-        let loss = self.loss + rhs.loss;
-        let draw = self.draw + rhs.draw;
-        let q = 0.5 * (2 * win + draw) as f32 / total as f32;
-        Score { q, u, win, loss, draw, total, parent_total }
-    }
+    fn add(self, rhs: &'a Score) -> Score { _add(self, rhs) }
 }
 
 impl<'a> AddAssign<&'a Score> for Score {
-    fn add_assign(&mut self, rhs: &'a Score) {
-        let u = 1. / (self.total + rhs.total) as f32;
-        let win = self.win + rhs.win;
-        let total = self.total + rhs.total;
-        let parent_total = self.parent_total + 1;
-        let loss = self.loss + rhs.loss;
-        let draw = self.draw + rhs.draw;
-        let q = 0.5 * (2 * win + draw) as f32 / total as f32;
-        *self = Score { q, u, win, loss, draw, total, parent_total };
-    }
+    fn add_assign(&mut self, rhs: &'a Score) { *self = _add(self, rhs) }
 }
 
 impl PartialEq for Score {
