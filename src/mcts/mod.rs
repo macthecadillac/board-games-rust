@@ -1,6 +1,5 @@
 use std::fmt;
 use std::cmp;
-use std::ops::AddAssign;
 
 use indextree::{Arena, NodeId};
 use rand::seq::SliceRandom;
@@ -124,16 +123,6 @@ impl<M, P, T> Eq for Cell<M, P, T>
         M: PartialEq + Eq + Clone,
         P: PartialEq + Eq + Clone,
         T: PartialEq + Eq + Clone {}
-
-impl<'a, M, P, T> AddAssign<&'a Cell<M, P, T>> for Cell<M, P, T>
-    where
-        M: PartialEq + Eq + Clone,
-        P: PartialEq + Eq + Clone,
-        T: PartialEq + Eq + Clone {
-    fn add_assign(&mut self, rhs: &'a Cell<M, P, T>) {
-        self.score += &rhs.score
-    }
-}
 
 /// Type alias of `Arena<Cell<M, P, T>>`
 type Tree<M, P, T> = Arena<Cell<M, P, T>>;
@@ -339,12 +328,11 @@ fn playout<M, P, T>(player: P, node: &Cell<M, P, T>) -> (NodeId, Tree<M, P, T>)
 /// Append tree2 to the given node. Assumes "start_node" is the same as "node"
 /// in tree1 and skips that during the operation.
 fn append_tree<'a, M, P, T>(tree1: &mut Tree<M, P, T>, node: NodeId,
-                  tree2: &Tree<M, P, T>, start_node: NodeId, indx: usize)
+                            tree2: &Tree<M, P, T>, start_node: NodeId)
     where
         M: Initialize + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
         T: Game<Move=M, Player=P> + Eq + Clone {
-    println!("\t{}", indx);
     match start_node.node_type(tree2) {
         NodeType::Leaf => (),
         NodeType::Node => {
