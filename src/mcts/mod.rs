@@ -125,8 +125,6 @@ impl<M, P, T> Eq for Cell<M, P, T>
         P: PartialEq + Eq + Clone,
         T: PartialEq + Eq + Clone {}
 
-// FIXME: This implementation is deceiving: the compiler still forces you to
-// pass in the rhs by value and does not accept a reference
 impl<'a, M, P, T> AddAssign<&'a Cell<M, P, T>> for Cell<M, P, T>
     where
         M: PartialEq + Eq + Clone,
