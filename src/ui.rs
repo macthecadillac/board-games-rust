@@ -1,4 +1,6 @@
 pub trait Interactive<M> {
+    // FIXME: Since move types will always have to be copyable, this function
+    // should require the object itself instead of a reference to it
     fn is_valid_move(&self, mv: &M) -> bool;
 }
 
@@ -29,7 +31,7 @@ pub mod terminal {
     use clap::{Arg, App};
 
     use crate::mcts;
-    use crate::mcts::{Debug, Game, Initialize, Status};
+    use crate::mcts::{Debug, Game, Status};
 
     use super::{PlayerKind, Turing, Builder};
 
@@ -56,7 +58,7 @@ pub mod terminal {
     /// again if the input was invalid.
     fn acquire_input<T, M, P>(game_state: &T) -> M
         where
-            M: Initialize + Eq + Copy + str::FromStr,
+            M: Default + Eq + Copy + str::FromStr,
             P: Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> {
         loop {
@@ -68,7 +70,7 @@ pub mod terminal {
                 Ok(_) => match input.trim().parse::<M>() {
                     Err(_) => println!("Invalid input."),
                     Ok(m) => {
-                        if game_state.available_moves()[..].contains(&m) {
+                        if game_state.available_moves().any(|x| x == m) {
                             break m
                         } else {
                             println!("Not a valid move.");
@@ -82,7 +84,7 @@ pub mod terminal {
     /// Clean up, print what needs to be printed, and exit the game
     fn exit<T, M, P>(game_state: &T, debug: &Debug) -> Result<(), Error>
         where
-            M: Initialize + Eq + Copy + str::FromStr,
+            M: Default + Eq + Copy + str::FromStr,
             P: Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
                 crate::Interactive<M> + fmt::Display {
@@ -105,7 +107,7 @@ pub mod terminal {
     fn game_loop<T, M, P>(nplayouts: usize, players: Vec<P>,
                           debug: Debug) -> Result<(), Error>
         where
-            M: Initialize + Eq + Copy + str::FromStr + fmt::Display,
+            M: Default + Eq + Copy + str::FromStr + fmt::Display,
             P: Turing + Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
                 crate::Interactive<M> + fmt::Display + Clone
@@ -123,20 +125,17 @@ pub mod terminal {
                     break
                 },
                 Status::Ongoing => {
-                    match (&buffer, &debug) {
-                        (&Buffer::Clear, &Debug::Release) => {
-                            match term.clear_screen() {
-                                Ok(_) => Ok(()),
-                                Err(_) => Err(Error::ClearScreenError)
-                            }?;
-                            println!("\n{}", game_state);
-                        },
-                        _ => ()
+                    if let (&Buffer::Clear, &Debug::Release) = (&buffer, &debug) {
+                        match term.clear_screen() {
+                            Ok(_) => Ok(()),
+                            Err(_) => Err(Error::ClearScreenError)
+                        }?;
+                        println!("\n{}", game_state);
                     };
                     match current_player.turing_test() {
                         PlayerKind::Human => {
                             let n = acquire_input(&game_state);
-                            game_state = game_state.mv(&n);
+                            game_state = game_state.mv(n);
                             println!("\n{}", game_state);
                             // if the current player has another turn
                             if game_state.current_player() == current_player {
@@ -149,7 +148,7 @@ pub mod terminal {
                             let ai_move = mcts::most_favored_move(nplayouts,
                                                                   &game_state,
                                                                   &debug);
-                            game_state = game_state.mv(&ai_move);
+                            game_state = game_state.mv(ai_move);
                             println!("\nPlayer {}'s move: {}\n", current_player,
                                      ai_move);
                             println!("{}", game_state);
@@ -166,7 +165,7 @@ pub mod terminal {
     /// repository for example usage.
     pub fn launch_game<T, M, P>(name: &str) -> Result<(), Error>
         where
-            M: Initialize + Eq + Copy + fmt::Display + str::FromStr,
+            M: Default + Eq + Copy + fmt::Display + str::FromStr,
             P: Builder + Turing + Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
                 crate::Interactive<M> + Clone + fmt::Display {

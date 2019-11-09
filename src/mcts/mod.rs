@@ -29,7 +29,8 @@ pub enum Status {
 /// This provides the interface for all structs that describe the game state.
 /// Any such struct must provide the methods listed here to function properly.
 pub trait Game {
-    type Move: Initialize + Clone + Copy;
+    type Move: Default + Clone + Copy;
+    type Moves: Iterator<Item=Self::Move>;
     type Player: fmt::Display + Eq + Clone + Copy;
 
     /// Initialize game
@@ -39,7 +40,7 @@ pub trait Game {
     /// game state. For games in which repeated moves are possible, this method
     /// *must* remove such moves from the list of available moves to avoid
     /// possible infinite loops.
-    fn available_moves(&self) -> Vec<Self::Move>;
+    fn available_moves(&self) -> Self::Moves;
 
     /// Return the player that plays the next turn.
     fn current_player(&self) -> Self::Player;
@@ -51,7 +52,7 @@ pub trait Game {
     fn status(&self) -> Status;
 
     /// Make the specified move and return the updated game state.
-    fn mv(&self, mv: &Self::Move) -> Self;
+    fn mv(&self, mv: Self::Move) -> Self;
 
     /// Return the winner if the game has reached the end. Return None
     /// otherwise.
@@ -78,12 +79,6 @@ impl<T> ReturnType<T> for NodeId {
             None => NodeType::Leaf
         }
     }
-}
-
-/// Initialize type
-pub trait Initialize {
-    /// Return some initial value
-    fn new() -> Self;
 }
 
 /// The Debug type
@@ -177,11 +172,11 @@ fn pick<'a, T, U, V>(greater: fn((T, &'a U), (T, &'a U)) -> bool,
 /// Expand the tree by one level
 fn expand_one_level<M, P, T>(tree: &mut Tree<M, P, T>, node_id: NodeId)
     where
-        M: Initialize + Copy + Clone,
+        M: Default + Copy + Clone,
         P: fmt::Display + Eq + Clone + Copy,
         T: Game<Move=M, Player=P> + Clone {
 
-    let make_move = |ptot: usize, state: &T, index: &M| {
+    let make_move = |ptot: usize, state: &T, index: M| {
         let new_state = state.mv(index);
         let next_player = new_state.current_player();
         (next_player, Score::new(ptot), new_state)
@@ -197,29 +192,30 @@ fn expand_one_level<M, P, T>(tree: &mut Tree<M, P, T>, node_id: NodeId)
     match node_id.node_type(tree) {
         NodeType::Node => panic!("Expansion error"),
         NodeType::Leaf => {
-            match &tree[node_id].data.state.available_moves()[..] {
-                &[] => panic!("Expansion error"),
-                moves => moves.iter().for_each(|&index| {
-                    let (player, score, state) = {
-                        let ptot = tree[node_id].data.score.total();
-                        let state = &tree[node_id].data.state;
-                        make_move(ptot, state, &index)
-                    };
-                    if player != tree[node_id].data.player {
-                        add_node(index, player, score, state, tree);
-                    } else {
-                        match state.status() {
-                            Status::Finished => {
-                                add_node(index, player, score, state, tree);
-                            },
-                            Status::Ongoing => {
-                                let new_node = add_node(index, player, score, state, tree);
-                                expand_one_level(tree, new_node);
-                            }
+            let mut available_moves = tree[node_id].data.state
+                .available_moves()
+                .peekable();
+            if available_moves.peek().is_none() { panic!("Expansion error"); }
+            available_moves.for_each(|index| {
+                let (player, score, state) = {
+                    let ptot = tree[node_id].data.score.total();
+                    let state = &tree[node_id].data.state;
+                    make_move(ptot, state, index)
+                };
+                if player != tree[node_id].data.player {
+                    add_node(index, player, score, state, tree);
+                } else {
+                    match state.status() {
+                        Status::Finished => {
+                            add_node(index, player, score, state, tree);
+                        },
+                        Status::Ongoing => {
+                            let new_node = add_node(index, player, score, state, tree);
+                            expand_one_level(tree, new_node);
                         }
                     }
-                })
-            }
+                }
+            })
         }
     }
 }
@@ -228,7 +224,7 @@ fn expand_one_level<M, P, T>(tree: &mut Tree<M, P, T>, node_id: NodeId)
 fn _playout_aux<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
                         -> Outcome
     where
-        M: Initialize + Copy + Clone + Eq,
+        M: Default + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
         T: Game<Move=M, Player=P> + Clone {
     match node_id.node_type(tree) {
@@ -271,23 +267,24 @@ fn _playout_aux<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
 /// Perform playouts of the game
 fn playout<M, P, T>(player: P, node: NodeId, tree: &mut Tree<M, P, T>)
     where
-        M: Initialize + Copy + Clone + Eq,
+        M: Default + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
         T: Game<Move=M, Player=P> + Clone {
     let _ = _playout_aux(player, node, tree);
 }
 
+#[allow(clippy::println_empty_string)]
 /// Pick the most favorable move from the current game state
 pub fn most_favored_move<M, P, T>(maxiter: usize, game_state: &T,
                                   dbg: &Debug) -> M
     where
-        M: Initialize + Copy + Clone + Eq + fmt::Display,
+        M: Default + Copy + Clone + Eq + fmt::Display,
         P: fmt::Display + Eq + Clone + Copy,
         T: Game<Move=M, Player=P> + Clone {
     let player = game_state.current_player();
     let init_score = Score::new(1);
     let mut tree = Tree::new();
-    let i_init: M = Initialize::new();
+    let i_init = M::default();
     let state = game_state.clone();
     let root_node = tree.new_node(Cell {
        index: i_init,
