@@ -1,3 +1,4 @@
+#![allow(clippy::unreadable_literal)]
 #[macro_use]
 extern crate clap;
 
@@ -19,7 +20,7 @@ use unicode_segmentation::UnicodeSegmentation;
 mod mcts;
 mod ui;
 
-use mcts::{Debug, Initialize, Game, Status};
+use mcts::{Debug, Game, Status};
 use ui::{Interactive, PlayerKind, Builder, Turing};
 use ui::terminal;
 
@@ -129,23 +130,19 @@ impl fmt::Display for Player {
     }
 }
 
-#[derive(Add, Sub, PartialEq, Eq, Copy, Clone, Debug, Display)]
+#[derive(Add, Sub, PartialEq, Eq, Copy, Clone, Debug, Display, Default, From)]
 /// The index struct. This is the internal representation of moves.
 struct Index(u8);
 
-impl Initialize for Index {
-    fn new() -> Self { Index(0) }
+impl From<Index> for usize {
+    fn from(item: Index) -> usize {
+        let Index(i) = item;
+        i as usize
+    }
 }
 
 impl Index {
-    fn as_usize(&self) -> usize {
-        let Index(i) = *self;
-        i as usize
-    }
-
-    fn inc(&self) -> Self { *self + Index(1) }
-
-    fn dec(&self) -> Self { *self - Index(1) }
+    fn dec(self) -> Self { self - Index(1) }
 }
 
 impl str::FromStr for Index {
@@ -164,14 +161,12 @@ impl str::FromStr for Index {
 struct BitBoard(u64);
 
 impl BitBoard {
-    // TODO: rewrite with try_fold when the Try trait API is stabilized
     fn check_winner(self) -> bool {
-        let mut c = false;
-        for &x in WINCONFIGS.iter() {
-            if x | self == self { c = true; break }
-            else if x > self { break }
-        };
-        c
+        WINCONFIGS.iter()
+            .take_while(|&&x| x <= self)
+            .skip_while(|&&x| x | self != self)
+            .next()
+            .is_some()
     }
 }
 
@@ -198,16 +193,19 @@ struct ConnectFourState {
     other_side: BitBoard
 }
 
+// FIXME: use impl Trait over trait objects once that is stabilized for trait
+// methods
 impl Game for ConnectFourState {
-    type Move = Index;
     type Player = Player;
+    type Move = Index;
+    type Moves = Box<dyn Iterator<Item=Index> + 'static>;
 
     fn new(players: Vec<Player>) -> Self {
         use Player::*;
 
-        let (player_one, player_two) = match &players[..] {
-            &[One(a), Two(b)] => (One(a), Two(b)),
-            &[Two(b), One(a)] => (One(a), Two(b)),
+        let (player_one, player_two) = match players[..] {
+            [One(a), Two(b)] => (One(a), Two(b)),
+            [Two(b), One(a)] => (One(a), Two(b)),
             _ => panic!("Invalid input")   // inaccessible branch
         };
 
@@ -220,17 +218,12 @@ impl Game for ConnectFourState {
         }
     }
 
-    fn available_moves(&self) -> Vec<Index> {
+    fn available_moves(&self) -> Self::Moves {
         let full_board = self.curr_side + self.other_side;
-        let (_, moves) = TOPROW.iter()
-            .fold((Index(0), vec![]), |(i, mut l), &elt| {
-                // The user sees a 1-based indexing scheme consistent with
-                // everyday expectations whereas internally we use 0-based
-                // indexing
-                if full_board | elt != full_board { l.push(i.inc()) };
-                (i.inc(), l)
-            });
-        moves
+        Box::new(TOPROW.iter()
+            .zip((1..).map(Index::from))
+            .filter_map(move |(&elt, i)| if full_board | elt != full_board { Some(i) }
+                                         else { None }))
     }
 
     fn current_player(&self) -> Player { self.curr_player }
@@ -251,19 +244,16 @@ impl Game for ConnectFourState {
         else { Status::Ongoing }
     }
 
-    fn mv(&self, indx: &Index) -> Self {
+    fn mv(&self, indx: Index) -> Self {
         let curr_player = self.next_player();
-        let mut other_side = self.curr_side;
         let curr_side = self.other_side;
         let full_board = self.curr_side + self.other_side;
-        // TODO: rewrite with try_fold when the Try trait API is stabilized
         // The user provides a 1-based index but we need a 0-based index
-        for entry in (0..6).map(|x| POW2[indx.dec().as_usize() + 7 * x]) {
-            if entry | full_board != full_board {
-                other_side += entry;
-                break
-            }
-        };
+        let other_side = self.curr_side + (0..6)
+            .map(|x| POW2[usize::from(indx.dec()) + 7 * x])
+            .skip_while(|&entry| entry | full_board == full_board)
+            .next()
+            .unwrap();
         ConnectFourState { curr_player, curr_side, other_side, ..*self }
     }
 
@@ -278,7 +268,7 @@ impl Game for ConnectFourState {
 impl Interactive<Index> for ConnectFourState {
     fn is_valid_move(&self, n: &Index) -> bool {
         // The user provides a 1-based index but we need a 0-based index
-        self.available_moves().contains(&n.dec())
+        self.available_moves().any(|x| x == n.dec())
     }
 }
 
