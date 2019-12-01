@@ -49,7 +49,7 @@ enum Error {
     ParseInputError,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
 /// The player type
 enum Player {
     /// Player one
@@ -78,20 +78,6 @@ impl Turing for Player {
         }
     }
 }
-
-impl PartialEq for Player {
-    fn eq(&self, rhs: &Self) -> bool {
-        use Player::*;
-        match (self, rhs) {
-            // We don't really care about the player kind here since there can
-            // only be one player 1 and so on in the game
-            (Black(_), Black(_)) | (Red(_), Red(_)) => true,
-            _ => false
-        }
-    }
-}
-
-impl Eq for Player {}
 
 impl fmt::Display for Player {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -127,7 +113,8 @@ impl Index {
                       occupied: BitBoard,
                       direction: Direction)
         -> Box<dyn Iterator<Item=(Index, BitBoard)>> {
-
+        // FIXME: capture of top/bottom row pieces when a capturing king stops
+        // in front of the said top/bottom row piece shouldn't be possible
         // TODO: perhaps also accumulate the path taken as well
         // Needs filter out of the function
         fn aux(index: Index,
@@ -237,7 +224,7 @@ impl fmt::Display for Move {
 }
 
 #[derive(BitOr, BitAnd, Add, Sub, PartialEq, Eq, PartialOrd, Ord, Copy, Clone,
-         Debug, From, Shl, Shr)]
+         Debug, From, Shl, Shr, Hash)]
 /// The BitBoard struct. This is the memoery representation of the
 /// checkers game state for one of the players. For a checkerboard with 64
 /// squares, we denote the squares with powers of 2 up to 2^63, starting with
@@ -354,7 +341,7 @@ impl Iterator for BitIterator {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 enum BitBoardVariants {
     RedMen(BitBoard),
     BlackMen(BitBoard),
@@ -411,7 +398,7 @@ impl BitBoardVariants {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 /// The CheckersState struct. This is the internal representation of the
 /// game state during play.
 struct CheckersState {
