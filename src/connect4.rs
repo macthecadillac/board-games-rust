@@ -27,7 +27,7 @@ use ui::terminal;
 /// Bit-board representation of the winning configurations. The configurations
 /// from smallest to largest represent configurations from lower left corner to
 /// the right and up
-static WINCONFIGS: [BitBoard; 69] = [
+const WINCONFIGS: [BitBoard; 69] = [
     BitBoard(15), BitBoard(30), BitBoard(60), BitBoard(120), BitBoard(1920),
     BitBoard(3840), BitBoard(7680), BitBoard(15360), BitBoard(245760),
     BitBoard(491520), BitBoard(983040), BitBoard(1966080), BitBoard(2113665),
@@ -54,15 +54,16 @@ static WINCONFIGS: [BitBoard; 69] = [
 
 /// Encodings of the top-most available slot. If these are vacant then the column
 /// is an available choice for the next move
-static TOPROW: [BitBoard; 7] = [
+const TOPROW: [BitBoard; 7] = [
     BitBoard(34359738368), BitBoard(68719476736), BitBoard(137438953472),
     BitBoard(274877906944), BitBoard(549755813888), BitBoard(1099511627776),
     BitBoard(2199023255552)
 ];
 
+// FIXME: juse use the shift operator for godsake
 /// Bitboard encodings of the first 42 powers of 2 for easy access and avoidance
 /// of potentially expensive calculations at run-time
-static POW2: [BitBoard; 42] = [
+const POW2: [BitBoard; 42] = [
     BitBoard(1), BitBoard(2), BitBoard(4),
     BitBoard(8), BitBoard(16), BitBoard(32), BitBoard(64), BitBoard(128),
     BitBoard(256), BitBoard(512), BitBoard(1024), BitBoard(2048),
