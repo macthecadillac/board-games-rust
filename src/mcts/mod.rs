@@ -104,49 +104,13 @@ type Tree<M, P, T> = Arena<Cell<M, P, T>>;
 /// Type alias of `Node<Cell<M, P, T>>`
 type Node<M, P, T> = indextree::Node<Cell<M, P, T>>;
 
-/// Generic function that compares two nodes using a user provided function.
+/// Utility function that compares two nodes using a user provided function.
 fn comp<T, U, V, O>(func: fn(&Score, &Score) -> O,
                     a: (NodeId, &Node<T, U, V>),
                     b: (NodeId, &Node<T, U, V>)) -> O {
     let (_, node_a) = a;
     let (_, node_b) = b;
     func(&node_a.data.score, &node_b.data.score)
-}
-
-/// Comparison test for nodes, using `Score::gt_self`. See documentation of that
-/// function.
-fn fav_score_self<T, U, V>(a: (NodeId, &Node<T, U, V>),
-                           b: (NodeId, &Node<T, U, V>)) -> bool {
-    comp(Score::gt_self, a, b)
-}
-
-/// Comparison test for nodes, using `Score::gt_other`. See documentation of that
-/// function.
-fn fav_score_other<T, U, V>(a: (NodeId, &Node<T, U, V>),
-                            b: (NodeId, &Node<T, U, V>)) -> bool {
-    comp(Score::gt_other, a, b)
-}
-
-/// Comparison test for nodes, using `Score::feq`. See documentation of that
-/// function.
-fn score_eq<T, U, V>(a: (NodeId, &Node<T, U, V>),
-                     b: (NodeId, &Node<T, U, V>)) -> bool {
-    comp(Score::feq, a, b)
-}
-
-/// Comparison test of nodes
-fn _gt<T, U, V>(a: (NodeId, &Node<T, U, V>),
-                b: (NodeId, &Node<T, U, V>)) -> bool {
-    match comp(Score::cmp, a, b) {
-        cmp::Ordering::Greater => true,
-        _ => false
-    }
-}
-
-/// Equality test of nodes
-fn _eq<T, U, V>(a: (NodeId, &Node<T, U, V>),
-                b: (NodeId, &Node<T, U, V>)) -> bool {
-    comp(Score::eq, a, b)
 }
 
 /// Pick according to the criterion given (as function f). When undecided,
@@ -227,6 +191,9 @@ fn playout<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
         M: Default + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
         T: Game<Move=M, Player=P> + Clone {
+    let fav_score_self = |a, b| comp(Score::gt_self, a, b);
+    let fav_score_other = |a, b| comp(Score::gt_other, a, b);
+    let score_eq = |a, b| comp(Score::feq, a, b);
     match node_id.node_type(tree) {
         NodeType::Node => {
             // TODO: Consider renaming this to something more descriptive
@@ -297,6 +264,11 @@ pub fn most_favored_move<M, P, T>(maxiter: usize, game_state: &T,
         }
     };
 
+    let _gt = |a, b| match comp(Score::cmp, a, b) {
+        cmp::Ordering::Greater => true,
+        _ => false
+    };
+    let _eq = |a, b| comp(Score::eq, a, b);
     let branches = root_node.children(&tree).map(|x| (x, &tree[x]));
     let most_promising_branch = pick(_gt, _eq, branches);
     tree[most_promising_branch].data.index
