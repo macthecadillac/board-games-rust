@@ -11,12 +11,14 @@ extern crate console;
 extern crate indextree;
 extern crate itertools;
 extern crate rand;
+extern crate unicode_segmentation;
 
 use std::{fmt, num, str, iter};
-use std::ops::{Mul, Div, BitAnd};
+use std::ops::{Mul, Div};
 
 use console::{Style, Term};
 use itertools::Itertools;
+use unicode_segmentation::UnicodeSegmentation;
 
 mod mcts;
 mod ui;
@@ -25,7 +27,7 @@ use mcts::{Debug, Game, Status};
 use ui::{Interactive, PlayerKind, Builder, Turing};
 use ui::terminal;
 
-static POW2: [BitBoard; 32] = [
+const POW2: [BitBoard; 32] = [
     BitBoard(2), BitBoard(8), BitBoard(32), BitBoard(128), BitBoard(256),
     BitBoard(1024), BitBoard(4096), BitBoard(16384), BitBoard(131072),
     BitBoard(524288), BitBoard(2097152), BitBoard(8388608), BitBoard(16777216),
@@ -39,7 +41,9 @@ static POW2: [BitBoard; 32] = [
     BitBoard(1152921504606846976), BitBoard(4611686018427387904)
 ];
 
-static BLANK_SPACES: BitBoard = BitBoard(12273903644374837845);
+const BLANK_SPACES: BitBoard = BitBoard(12273903644374837845);
+const TOP_ROW: BitBoard = BitBoard(170);
+const BOTTOM_ROW: BitBoard = BitBoard(6124895493223874560);
 
 enum Error {
     ParseInputError,
@@ -118,56 +122,55 @@ impl str::FromStr for Index {
 }
 
 impl Index {
-    // TODO: perhaps also accumulate the path taken as well
-    // TODO: using an explicit loop and return a stack allocated iterator could
-    // be faster
-    fn _avail_captures(self,
-                       captured: BitBoard,
-                       opponent: BitBoard,
-                       occupied: BitBoard,
-                       rm_row: fn(BitBoard) -> BitBoard,
-                       op: fn(BitBoard, BitBoard) -> BitBoard)
-        -> Box<dyn Iterator<Item=(Index, BitBoard)>> {
-        let captures = |r, x| op(rm_row(r), BitBoard(x))
-            .rm_invalid_pos()
-            .bitand(opponent);
-        let dest = |c, x| op(rm_row(c), BitBoard(x)).rm_invalid_pos();
-        let bb = POW2[usize::from(self)];
-        let capture32 = captures(bb, 32);
-        let capture128 = captures(bb, 128);
-        let dest32 = dest(capture32, 32);
-        let dest128 = dest(capture128, 128);
-        let capture = (capture32 | capture128) | captured;
-        let dest = (dest32 | dest128).rm_occupied(occupied);
-
-        if dest != BitBoard(0) && capture != BitBoard(0) {
-            Box::new(
-                dest.iter()
-                    .flat_map(move |i| 
-                        i._avail_captures(capture, opponent, occupied, rm_row, op)
-                         .zip(iter::repeat(capture))
-                         .map(|((i, b), _)| (i, b))
-                    )
-            )
-        } else {
-            Box::new(iter::empty())
-        }
-    }
-
     fn avail_captures(self,
                       opponent_pieces: BitBoard,
                       occupied: BitBoard,
-                      rm_row: fn(BitBoard) -> BitBoard,
-                      op: fn(BitBoard, BitBoard) -> BitBoard)
+                      direction: Direction)
         -> Box<dyn Iterator<Item=(Index, BitBoard)>> {
-        self._avail_captures(BitBoard(0), opponent_pieces, occupied, rm_row, op)
+
+        // TODO: perhaps also accumulate the path taken as well
+        // Needs filter out of the function
+        fn aux(index: Index,
+               captured: BitBoard,
+               opponent: BitBoard,
+               occupied: BitBoard,
+               direction: Direction)
+            -> Box<dyn Iterator<Item=(Index, BitBoard)>> {
+            let capture = |r: BitBoard, x| {
+                let capt = r.shift(x, direction) & opponent;
+                let dest = capt.shift(x, direction).rm(occupied);
+                match dest {
+                    BitBoard(0) => (BitBoard(0), BitBoard(0)),
+                    _ => (capt, dest)
+                }
+            };
+
+            let bitboard = POW2[usize::from(index)];
+            let (capture7, dest7) = capture(bitboard, 7);
+            let (capture9, dest9) = capture(bitboard, 9);
+
+            let itr = vec![(capture7, dest7), (capture9, dest9)].into_iter()
+                .flat_map(move |(c, d)|
+                    if c == BitBoard(0) {
+                        Box::new(iter::once((index, captured)))
+                    } else {
+                        let capt = c | captured;
+                        let occ = occupied - c;
+                        let opp = opponent - c;
+                        aux(d.iter().next().unwrap(), capt, opp, occ, direction)
+                    }
+                );
+            Box::new(itr)
+        }
+        
+        aux(self, BitBoard(0), opponent_pieces, occupied, direction)
    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 struct Movement(Index, Index);
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug)]
 enum Move {
     Move(Movement),
     Capture(Movement, BitBoard)
@@ -179,6 +182,19 @@ impl Default for Move {
     }
 }
 
+impl PartialEq for Move {
+    fn eq(&self, rhs: &Self) -> bool {
+        use crate::Move::*;
+        match (self, rhs) {
+            (Move(m1), Move(m2)) => m1 == m2,
+            (Capture(m1, b1), Capture(m2, b2)) => m1 == m2 && b1 == b2,
+            (Capture(m1, _), Move(m2)) | (Move(m1), Capture(m2, _)) => m1 == m2,
+        }
+    }
+}
+
+impl Eq for Move {}
+
 impl str::FromStr for Move {
     type Err = Error;
 
@@ -188,11 +204,15 @@ impl str::FromStr for Move {
             Err(_) => Err(Error::ParseInputError)
         };
         match s.split(|c| c == ' ' || c == 'x' || c == '-')
-                .collect::<Vec<&str>>()[..] {
+               .collect::<Vec<&str>>()[..] {
             [p0, p1] => {
                 let pos0 = parse(p0)?;
                 let pos1 = parse(p1)?;
-                Ok(Move::Move(Movement(Index(pos0), Index(pos1))))
+                if pos0 == 0 || pos1 == 0 {
+                    Err(Error::ParseInputError)
+                } else {
+                    Ok(Move::Move(Movement(Index(pos0 - 1), Index(pos1 - 1))))
+                }
             },
             _ => Err(Error::ParseInputError)
         }
@@ -203,21 +223,21 @@ impl fmt::Display for Move {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
             Move::Move(Movement(pos0, pos1)) =>
-                write!(f, "move {} to {}", pos0, pos1),
+                write!(f, "move {} to {}", pos0.0 + 1, pos1.0 + 1),
             Move::Capture(Movement(pos0, pos1), captures) => {
                 let c: String = captures.iter()
                     .flat_map(|Index(i)|
-                        format!("{} ", i).chars().collect::<Vec<char>>()
+                        format!("{} ", i + 1).chars().collect::<Vec<char>>()
                     )
                     .collect();
-                write!(f, "move {} to {}, capturing {}", pos0, pos1, c)
+                write!(f, "move {} to {}, capturing {}", pos0.0 + 1, pos1.0 + 1, c)
             }
         }
     }
 }
 
 #[derive(BitOr, BitAnd, Add, Sub, PartialEq, Eq, PartialOrd, Ord, Copy, Clone,
-         Debug, From)]
+         Debug, From, Shl, Shr)]
 /// The BitBoard struct. This is the memoery representation of the
 /// checkers game state for one of the players. For a checkerboard with 64
 /// squares, we denote the squares with powers of 2 up to 2^63, starting with
@@ -243,72 +263,69 @@ impl Div for BitBoard {
 }
 
 impl BitBoard {
-    fn iter(self) -> BitIterator {
-        BitIterator { cursor: 0, bitboard: self }
+    fn iter(self) -> BitIterator { BitIterator { cursor: 0, bitboard: self } }
+
+    fn rm(self, bits: Self) -> Self { (self | bits) - bits }
+
+    fn rm_invalid_pos(self) -> Self { self.rm(BLANK_SPACES) }
+
+    fn rm_top_row(self) -> Self { self.rm(TOP_ROW) }
+
+    fn rm_bottom_row(self) -> Self { self.rm(BOTTOM_ROW) }
+
+    fn shift(self, binary_shift: u8, direction: Direction) -> Self {
+        match direction {
+            Direction::Up => self.rm_top_row() >> binary_shift,
+            Direction::Down => self.rm_bottom_row() << binary_shift,
+            Direction::Omni => self.rm_bottom_row() << binary_shift |
+                self.rm_top_row() >> binary_shift
+        }.rm_invalid_pos()
     }
 
-    fn rm_invalid_pos(self) -> Self {
-        (self | BLANK_SPACES) - BLANK_SPACES
+    fn mv(self, p0: Index, p1: Index) -> Self {
+        if self & POW2[usize::from(p0)] != BitBoard(0) {
+            let origin_piece = POW2[usize::from(p0)];
+            let dest_piece = POW2[usize::from(p1)];
+            self.rm(origin_piece) + dest_piece
+        } else {
+            self
+        }
     }
 
-    fn rm_occupied(self, occupied: Self) -> Self {
-        (self | occupied) - occupied
-    }
-
-    fn rm_top_row(self) -> Self {
-        (self | BitBoard(170)) - BitBoard(170)
-    }
-
-    fn rm_bottom_row(self) -> Self {
-        (self | BitBoard(6124895493223874560)) - BitBoard(6124895493223874560)
-    }
-
-    // TODO: move to impl Index
-    fn avail_mvs(self, occupied: Self,
-                 rm_row: fn(BitBoard) -> BitBoard,
-                 op: fn(BitBoard, BitBoard) -> BitBoard)
+    fn avail_mvs(self, occupied: Self, dir: Direction)
         -> impl Iterator<Item=Move> {
-        rm_row(self)
-            .iter()
+        self.iter()
             .flat_map(move |i0| {
-                let bb = POW2[usize::from(i0)];
-                (op(bb, BitBoard(32)) | op(bb, BitBoard(128)))
-                .rm_invalid_pos()
-                .rm_occupied(occupied)
+                let piece = POW2[usize::from(i0)];
+                (piece.shift(7, dir) | piece.shift(9, dir))
+                .rm(occupied)
                 .iter()
                 .map(move |i1| Move::Move(Movement(i0, i1)))
             })
     }
 
-    fn lower_avail_mvs(self, occupied: Self) -> impl Iterator<Item=Move> {
-        self.avail_mvs(occupied, BitBoard::rm_bottom_row, Mul::mul)
-    }
-
-    fn upper_avail_mvs(self, occupied: Self) -> impl Iterator<Item=Move> {
-        self.avail_mvs(occupied, BitBoard::rm_top_row, Mul::mul)
-    }
-
-    fn avail_captures(self, opponent_pieces: Self, occupied: Self,
-                          rm_row: fn(BitBoard) -> BitBoard,
-                          op: fn(BitBoard, BitBoard) -> BitBoard)
-        -> impl Iterator<Item=(Index, BitBoard)> {
-        rm_row(self)
-            .iter()
+    fn avail_captures(self, opponent_pieces: Self, occupied: Self, dir: Direction)
+        -> impl Iterator<Item=Move> {
+        self.iter()
             .flat_map(move |indx|
-                indx.avail_captures(opponent_pieces, occupied, rm_row, op)
+                indx.avail_captures(opponent_pieces, occupied, dir)
+                    .zip(iter::repeat(indx))
+                    .filter(|((i1, _), i0)| i0 != i1)  // remove trivial moves
+                    // remove incomplete moves
+                    .coalesce(|x, y| {
+                        let ((_, bx), _) = x;
+                        let ((_, by), _) = y;
+                        if bx | by == bx { Ok(x) }
+                        else if bx | by == by { Ok(y) }
+                        else { Err((x, y)) }
+                    })
+                    .map(|((i1, b), i0)| Move::Capture(Movement(i0, i1), b))
             )
     }
-
-    fn lower_avail_captures(self, opponent: Self, occupied: Self)
-        -> impl Iterator<Item=(Index, BitBoard)> {
-        self.avail_captures(opponent, occupied, BitBoard::rm_bottom_row, Mul::mul)
-    }
-
-    fn upper_avail_captures(self, opponent: Self, occupied: Self)
-        -> impl Iterator<Item=(Index, BitBoard)> {
-        self.avail_captures(opponent, occupied, BitBoard::rm_top_row, Div::div)
-    }
 }
+
+#[derive(Clone, Copy)]
+enum Direction { Up, Down, Omni }
 
 #[derive(Clone, Copy)]
 struct BitIterator {
@@ -322,15 +339,15 @@ impl Iterator for BitIterator {
         loop {
             if self.cursor > 31 {
                 break None
-            } else if self.bitboard > POW2[usize::from(self.cursor)] {
+            } else if  POW2[usize::from(self.cursor)] > self.bitboard {
                 break None
             } else {
                 let i = Index(self.cursor);
                 if POW2[usize::from(self.cursor)] & self.bitboard == BitBoard(0) {
+                    self.cursor += 1
+                } else {
                     self.cursor += 1;
                     break Some(i)
-                } else {
-                    self.cursor += 1
                 }
             }
         }
@@ -338,80 +355,59 @@ impl Iterator for BitIterator {
 }
 
 #[derive(Copy, Clone)]
-enum FlaggedBitBoard {
+enum BitBoardVariants {
     RedMen(BitBoard),
     BlackMen(BitBoard),
     Kings(BitBoard)
 }
 
-impl FlaggedBitBoard {
+impl BitBoardVariants {
     fn unwrap(self) -> BitBoard {
-        use FlaggedBitBoard::*;
+        use BitBoardVariants::*;
         match self {
             RedMen(b) | BlackMen(b) | Kings(b) => b
         }
     }
 
+    fn mv(self, p0: Index, p1: Index) -> Self {
+        use BitBoardVariants::*;
+        match self {
+            RedMen(x) => RedMen(x.mv(p0, p1)),
+            BlackMen(x) => BlackMen(x.mv(p0, p1)),
+            Kings(x) => Kings(x.mv(p0, p1)),
+        }
+    }
+
+    fn rm(self, pieces: BitBoard) -> Self {
+        use BitBoardVariants::*;
+        match self {
+            RedMen(x) => RedMen(x.rm(pieces)),
+            BlackMen(x) => BlackMen(x.rm(pieces)),
+            Kings(x) => Kings(x.rm(pieces)),
+        }
+    }
+
     fn avail_mvs(self, occupied: BitBoard)
         -> Box<dyn Iterator<Item=Move> + 'static> {
-        use FlaggedBitBoard::*;
+        use BitBoardVariants::*;
         match self {
-            BlackMen(b) => Box::new(b.lower_avail_mvs(occupied)),
-            RedMen(b) => Box::new(b.upper_avail_mvs(occupied)),
+            BlackMen(b) => Box::new(b.avail_mvs(occupied, Direction::Down)),
+            RedMen(b) => Box::new(b.avail_mvs(occupied, Direction::Up)),
             Kings(b) => Box::new(
-                b.lower_avail_mvs(occupied)
-                    .chain(b.upper_avail_mvs(occupied))
+                b.avail_mvs(occupied, Direction::Up)
+                 .chain(b.avail_mvs(occupied, Direction::Down))
             )
         }
     }
 
     fn avail_captures(self, opponent_pieces: BitBoard, occupied: BitBoard)
         -> impl Iterator<Item=Move> {
-        fn black_captures(b: BitBoard, opp: BitBoard, occ: BitBoard)
-            -> Box<dyn Iterator<Item=((Index, BitBoard), Index)> + 'static> {
-            Box::new(
-                b.iter()
-                    .flat_map(move |indx|
-                        POW2[usize::from(indx)]
-                            .lower_avail_captures(opp, occ)
-                            .zip(iter::repeat(indx))
-                    )
-            )
-        }
-
-        fn red_captures(b: BitBoard, opp: BitBoard, occ: BitBoard)
-            -> Box<dyn Iterator<Item=((Index, BitBoard), Index)> + 'static> {
-            Box::new(
-                b.iter()
-                    .flat_map(move |indx|
-                        POW2[usize::from(indx)]
-                            .upper_avail_captures(opp, occ)
-                            .zip(iter::repeat(indx))
-                    )
-            )
-        }
-
-        fn king_captures(b: BitBoard, opp: BitBoard, occ: BitBoard)
-            -> Box<dyn Iterator<Item=((Index, BitBoard), Index)> + 'static> {
-            Box::new(
-                b.iter()
-                    .flat_map(move |indx|
-                        POW2[usize::from(indx)]
-                            .upper_avail_captures(opp, occ)
-                            .chain(POW2[usize::from(indx)]
-                                .lower_avail_captures(opp, occ))
-                            .zip(iter::repeat(indx))
-                    )
-            )
-        }
-
-        use FlaggedBitBoard::*;
+        use BitBoardVariants::*;
         match self {
-            BlackMen(b) => black_captures(b, opponent_pieces, occupied),
-            RedMen(b) => red_captures(b, opponent_pieces, occupied),
-            Kings(b) => king_captures(b, opponent_pieces, occupied)
+            BlackMen(b) => b.avail_captures(opponent_pieces, occupied, Direction::Down),
+            RedMen(b) => b.avail_captures(opponent_pieces, occupied, Direction::Up),
+            Kings(b) => b.avail_captures(opponent_pieces, occupied, Direction::Omni)
         }
-        .map(|((i1, b), i0)| Move::Capture(Movement(i0, i1), b))
     }
 }
 
@@ -425,14 +421,14 @@ struct CheckersState {
     black_player: Player,
     /// Red player
     red_player: Player,
-    /// Men of the black player.
-    black_men: FlaggedBitBoard,
-    /// Kings of the black player
-    black_kings: FlaggedBitBoard,
-    /// Men of the red player
-    red_men: FlaggedBitBoard,
-    /// Kings of the red player
-    red_kings: FlaggedBitBoard
+    /// Men of the current player
+    curr_men: BitBoardVariants,
+    /// Kings of the current player
+    curr_kings: BitBoardVariants,
+    /// Men of the opposite player
+    oppo_men: BitBoardVariants,
+    /// Kings of the opposite player
+    oppo_kings: BitBoardVariants
 }
 
 impl Interactive<Move> for CheckersState {
@@ -446,21 +442,33 @@ impl fmt::Display for CheckersState {
         let int_to_padded_str = |bitboard: BitBoard| {
             let bitstring = format!("{:b}", bitboard);
             format!("{:0>64}", bitstring)
+                .graphemes(true)
+                .rev()
+                .collect::<String>()
         };
-        let black_men = int_to_padded_str(self.black_men.unwrap());
-        let black_kings = int_to_padded_str(self.black_kings.unwrap());
-        let red_men = int_to_padded_str(self.red_men.unwrap());
-        let red_kings = int_to_padded_str(self.red_kings.unwrap());
+
+        let (black_men_fbb, black_kings_fbb, red_men_fbb, red_kings_fbb) =
+            match self.curr_player {
+                Player::Black(_) =>
+                    (self.curr_men, self.curr_kings, self.oppo_men, self.oppo_kings),
+                Player::Red(_) =>
+                    (self.oppo_men, self.oppo_kings, self.curr_men, self.curr_kings)
+            };
+
+        let black_men = int_to_padded_str(black_men_fbb.unwrap());
+        let black_kings = int_to_padded_str(black_kings_fbb.unwrap());
+        let red_men = int_to_padded_str(red_men_fbb.unwrap());
+        let red_kings = int_to_padded_str(red_kings_fbb.unwrap());
         let blank_spaces = int_to_padded_str(BLANK_SPACES);
         let symbol_conv = |(a, b)| match (a, b) {
             ('1', '0') => 'm',
             ('0', '1') => 'k',
             ('0', '0') => ' ',
-            _ => panic!("Check your code!")
+            e => panic!("{:?}", e)
         };
-        let red = Style::new().red().bold();
+        let red = Style::new().red();
         // use blue instead of black for better displah in terminals
-        let blue = Style::new().blue().bold();
+        let blue = Style::new().blue();
         let white = Style::new().on_white();
         let black = Style::new().black();
 
@@ -474,7 +482,7 @@ impl fmt::Display for CheckersState {
             .map(|c| match c {
                 '0' => '+',
                 '1' => '-',
-                _ => panic!("impossible branch")
+                e => panic!("{:?}", e)
             });
         black_str.zip(red_str)
             .zip(blank_spaces_str)
@@ -482,9 +490,9 @@ impl fmt::Display for CheckersState {
             .into_iter()
             .for_each(|l| {
                 l.for_each(|((b, r), sp)| match (b, r, sp) {
-                    ('m', ' ', '+') => print!("{}", blue.apply_to('⬤')),
+                    ('m', ' ', '+') => print!("{}", blue.apply_to('●')),
                     ('k', ' ', '+') => print!("{}", blue.apply_to('♚')),
-                    (' ', 'm', '+') => print!("{}", red.apply_to('⬤')),
+                    (' ', 'm', '+') => print!("{}", red.apply_to('●')),
                     (' ', 'k', '+') => print!("{}", red.apply_to('♚')),
                     (' ', ' ', '+') => print!("{}", black.apply_to(' ')),
                     (' ', ' ', '-') => print!("{}", white.apply_to(' ')),
@@ -522,7 +530,7 @@ impl Game for CheckersState {
 
     fn new(players: Vec<Player>) -> Self {
         use Player::*;
-        use FlaggedBitBoard::*;
+        use BitBoardVariants::*;
 
         let (black_player, red_player) = match players[..] {
             [Black(a), Red(b)] => (Black(a), Red(b)),
@@ -534,30 +542,22 @@ impl Game for CheckersState {
             curr_player: black_player,
             black_player,
             red_player,
-            black_men: BlackMen(BitBoard(11163050)),
-            black_kings: Kings(BitBoard(0)),
-            red_men: RedMen(BitBoard(6172839697753047040)),
-            red_kings: Kings(BitBoard(0)),
+            curr_men: BlackMen(BitBoard(11163050)),
+            curr_kings: Kings(BitBoard(0)),
+            oppo_men: RedMen(BitBoard(6172839697753047040)),
+            oppo_kings: Kings(BitBoard(0)),
         }
     }
 
     fn available_moves(&self) -> Self::Moves {
-        // FIXME: need to add mechanism for crowning
-        let occupied = self.black_men.unwrap() + self.black_kings.unwrap() +
-            self.red_men.unwrap() + self.red_kings.unwrap();
-        let opponent_occupied = match self.curr_player {
-            Player::Black(_) => self.red_kings.unwrap() + self.red_men.unwrap(),
-            Player::Red(_) => self.black_kings.unwrap() + self.black_men.unwrap(),
-        };
-        let (self_men, self_kings) = match self.curr_player {
-            Player::Black(_) => (self.black_men, self.black_kings),
-            Player::Red(_) => (self.red_men, self.red_kings),
-        };
+        let occupied = self.curr_men.unwrap() + self.curr_kings.unwrap() +
+            self.oppo_men.unwrap() + self.oppo_kings.unwrap();
+        let opponent_occupied = self.oppo_kings.unwrap() + self.oppo_men.unwrap();
 
-        let moves = self_men.avail_mvs(occupied)
-            .chain(self_kings.avail_mvs(occupied));
-        let mut captures = self_men.avail_captures(opponent_occupied, occupied)
-            .chain(self_kings.avail_captures(opponent_occupied, occupied))
+        let moves = self.curr_men.avail_mvs(occupied)
+            .chain(self.curr_kings.avail_mvs(occupied));
+        let mut captures = self.curr_men.avail_captures(opponent_occupied, occupied)
+            .chain(self.curr_kings.avail_captures(opponent_occupied, occupied))
             .peekable();
 
         if captures.peek().is_some() { Box::new(captures) }
@@ -574,8 +574,8 @@ impl Game for CheckersState {
     }
 
     fn status(&self) -> Status {
-        if self.black_kings.unwrap() + self.black_men.unwrap() == BitBoard(0)
-            || self.red_kings.unwrap() + self.red_men.unwrap() == BitBoard(0) {
+        // if no moves left
+        if self.available_moves().next().is_none() {
             Status::Finished
         } else {
             Status::Ongoing
@@ -583,47 +583,40 @@ impl Game for CheckersState {
     }
 
     fn mv(&self, mv: Move) -> Self {
-        let (self_men, self_kings, opponent_men, opponent_kings) =
-            match self.curr_player {
-            Player::Black(_) =>
-                (self.black_men.unwrap(), self.black_kings.unwrap(),
-                 self.red_men.unwrap(), self.red_kings.unwrap()),
-            Player::Red(_) =>
-                (self.red_men.unwrap(), self.red_kings.unwrap(),
-                 self.black_men.unwrap(), self.black_kings.unwrap())
-        };
+        use BitBoardVariants::*;
+        // FIXME: a stop gap solution to get over the inability to parse
+        // captures
+        let mv = self.available_moves().find(|&m| m == mv).unwrap();
+        let move_then_crown = |p0, p1|
+            match (self.curr_men.mv(p0, p1), self.curr_kings.mv(p0, p1)) {
+                (BlackMen(m), Kings(k)) => 
+                    (BlackMen(m - (m & BOTTOM_ROW)), Kings(k + (m & BOTTOM_ROW))),
+                (RedMen(m), Kings(k)) =>
+                    (RedMen(m - (m & TOP_ROW)), Kings(k + (m & TOP_ROW))),
+                _ => panic!("inaccessible branch")
+            };
 
-        let rm = |x, pieces| (x | pieces) - pieces;
-        let aux = |x, p0, p1| x - POW2[usize::from(p0)] + POW2[usize::from(p1)];
-        let mv_pieces = |men, kings, p0, p1| (aux(men, p0, p1), aux(kings, p0, p1));
-        let (self_men, self_kings, opponent_men, opponent_kings) = match mv {
+        let (oppo_men, oppo_kings, curr_men, curr_kings) = match mv {
             Move::Move(Movement(p0, p1)) => {
-                let (self_men, self_kings) = mv_pieces(self_men, self_kings, p0, p1);
-                (self_men, self_kings, opponent_men, opponent_kings)
+                let (oppo_men, oppo_kings) = move_then_crown(p0, p1);
+                (oppo_men, oppo_kings, self.oppo_men, self.oppo_kings)
             },
             Move::Capture(Movement(p0, p1), p) => {
-                let (self_men, self_kings) = mv_pieces(self_men, self_kings, p0, p1);
-                (self_men, self_kings, rm(opponent_men, p), rm(opponent_kings, p))
+                let (oppo_men, oppo_kings) = move_then_crown(p0, p1);
+                (oppo_men, oppo_kings,
+                 self.oppo_men.rm(p), self.oppo_kings.rm(p))
             }
         };
 
-        use FlaggedBitBoard::*;
-        let (red_men, red_kings, black_men, black_kings) = match self.curr_player {
-            Player::Black(_) =>
-                (RedMen(opponent_men), Kings(opponent_kings),
-                 BlackMen(self_men), Kings(self_kings)),
-            Player::Red(_) =>
-                (RedMen(self_men), Kings(self_kings),
-                 BlackMen(opponent_men), Kings(opponent_kings)),
-        };
-        CheckersState { red_men, red_kings, black_men, black_kings, ..*self }
+        let curr_player = self.next_player();
+        CheckersState { curr_men, curr_kings, oppo_men, oppo_kings, curr_player, ..*self }
     }
 
     fn winner(&self) -> Option<Player> {
-        if self.black_kings.unwrap() + self.black_men.unwrap() == BitBoard(0) {
-            Some(self.red_player)
-        } else if self.red_kings.unwrap() + self.red_men.unwrap() == BitBoard(0) {
-            Some(self.black_player)
+        if self.oppo_kings.unwrap() + self.oppo_men.unwrap() == BitBoard(0) {
+            Some(self.curr_player)
+        } else if self.curr_kings.unwrap() + self.curr_men.unwrap() == BitBoard(0) {
+            Some(self.next_player())
         } else {
             None
         }
