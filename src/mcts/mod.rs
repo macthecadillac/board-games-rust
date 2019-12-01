@@ -195,7 +195,7 @@ fn expand_one_level<M, P, T>(tree: &mut Tree<M, P, T>, node_id: NodeId)
             let mut available_moves = tree[node_id].data.state
                 .available_moves()
                 .peekable();
-            if available_moves.peek().is_none() { panic!("Expansion error"); }
+            if available_moves.peek().is_none() { panic!("No available moves"); }
             available_moves.for_each(|index| {
                 let (player, score, state) = {
                     let ptot = tree[node_id].data.score.total();
@@ -221,8 +221,8 @@ fn expand_one_level<M, P, T>(tree: &mut Tree<M, P, T>, node_id: NodeId)
 }
 
 /// The core of the function that carries out simulations
-fn _playout_aux<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
-                        -> Outcome
+fn playout<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
+                   -> Outcome
     where
         M: Default + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
@@ -238,7 +238,7 @@ fn _playout_aux<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
                     pick(fav_score_other, score_eq, nodes)
                 }
             };
-            let outcome = _playout_aux(player, branch, tree);
+            let outcome = playout(player, branch, tree);
             tree[node_id].data.score.update(outcome);
             outcome
         },
@@ -257,23 +257,13 @@ fn _playout_aux<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
                 },
                 Status::Ongoing => {
                     expand_one_level(tree, node_id);
-                    _playout_aux(player, node_id, tree)
+                    playout(player, node_id, tree)
                 }
             }
         }
     }
 }
 
-/// Perform playouts of the game
-fn playout<M, P, T>(player: P, node: NodeId, tree: &mut Tree<M, P, T>)
-    where
-        M: Default + Copy + Clone + Eq,
-        P: fmt::Display + Eq + Clone + Copy,
-        T: Game<Move=M, Player=P> + Clone {
-    let _ = _playout_aux(player, node, tree);
-}
-
-#[allow(clippy::println_empty_string)]
 /// Pick the most favorable move from the current game state
 pub fn most_favored_move<M, P, T>(maxiter: usize, game_state: &T,
                                   dbg: &Debug) -> M
@@ -294,7 +284,7 @@ pub fn most_favored_move<M, P, T>(maxiter: usize, game_state: &T,
     });
 
     for _ in 0..maxiter {
-        playout(player, root_node, &mut tree)
+        playout(player, root_node, &mut tree);
     }
 
     match dbg {
@@ -303,7 +293,7 @@ pub fn most_favored_move<M, P, T>(maxiter: usize, game_state: &T,
             root_node.children(&tree)
                 .map(|x| &tree[x].data)
                 .for_each(|cell| println!("{}  {}", cell.index, cell.score));
-            println!("");
+            println!();
         }
     };
 
