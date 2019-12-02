@@ -617,6 +617,12 @@ impl Game for CheckersState {
             Some(self.curr_player)
         } else if self.curr_kings.unwrap() + self.curr_men.unwrap() == BitBoard(0) {
             Some(self.next_player())
+        // MCTS only calls this function when the status function returns
+        // Status::Finished. That could mean the current player still has pieces
+        // on the board but ran out of legal moves (not counting the repetition
+        // rules), in which case the current player lost.
+        } else if self.curr_kings.unwrap() + self.curr_men.unwrap() != BitBoard(0) {
+            Some(self.next_player())
         } else {
             None
         }
