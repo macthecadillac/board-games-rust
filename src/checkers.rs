@@ -41,6 +41,12 @@ const POW2: [BitBoard; 32] = [
     BitBoard(1152921504606846976), BitBoard(4611686018427387904)
 ];
 
+const ROW_SUMS: [BitBoard; 8] = [
+    BitBoard(170), BitBoard(21760), BitBoard(11141120), BitBoard(1426063360),
+    BitBoard(730144440320), BitBoard(93458488360960),
+    BitBoard(47850746040811520), BitBoard(6124895493223874560)
+];
+
 const BLANK_SPACES: BitBoard = BitBoard(12273903644374837845);
 const TOP_ROW: BitBoard = BitBoard(170);
 const BOTTOM_ROW: BitBoard = BitBoard(6124895493223874560);
@@ -323,13 +329,22 @@ struct BitIterator {
 impl Iterator for BitIterator {
     type Item = Index;
     fn next(&mut self) -> Option<Self::Item> {
+        // TODO: test validity of the skipping logic
+        // skip over empty rows
+        if self.cursor % 4 == 0 {
+            let nempty_rows = ROW_SUMS[self.cursor as usize / 4..].iter()
+                .take_while(|&&x| (x | self.bitboard) - self.bitboard == x)
+                .count();
+            self.cursor += 4 * nempty_rows as u8;
+        }
         loop {
             if self.cursor > 31 {
                 break None
-            } else if  POW2[usize::from(self.cursor)] > self.bitboard {
-                break None
+            // doesn't seem to be necessary at all because of skipping
+            // } else if  POW2[usize::from(self.cursor)] > self.bitboard {
+            //     break None
             } else {
-                let i = Index(self.cursor);
+                let i = Index(self.cursor as u8);
                 if POW2[usize::from(self.cursor)] & self.bitboard == BitBoard(0) {
                     self.cursor += 1
                 } else {
