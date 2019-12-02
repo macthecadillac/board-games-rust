@@ -122,41 +122,52 @@ impl Index {
         // TODO: perhaps also accumulate the path taken as well
         // function output needs filtering to remove incomplete and trivial
         // moves
-        fn aux(index: Index,
+        fn aux(bitboard: BitBoard,
                captured: BitBoard,
                opponent: BitBoard,
                occupied: BitBoard,
                direction: Direction)
             -> Box<dyn Iterator<Item=(Index, BitBoard)>> {
-            let capture = |r: BitBoard, x| {
-                let capt = r.shift(x, direction) & opponent;
-                let _dest = capt.shift(x, direction).rm(occupied);
-                let dest = (_dest | r) - r;  // kings might "backtrack"
-                match dest {
-                    BitBoard(0) => (BitBoard(0), BitBoard(0)),
-                    _ => (capt, dest)
+
+            fn _capt(r: BitBoard, x: u8, oppo: BitBoard, occ: BitBoard,
+                     dir: Direction, mut acc: Vec<(BitBoard, BitBoard)>)
+                -> Vec<(BitBoard, BitBoard)> {
+                match dir {
+                    Direction::Up | Direction::Down => {
+                        let capt = r.shift(x, dir) & oppo;
+                        let dest = capt.shift(x, dir).rm(occ);
+                        match dest {
+                            BitBoard(0) => acc.push((BitBoard(0), BitBoard(0))),
+                            _ => acc.push((capt, dest))
+                        };
+                        acc
+                    },
+                    Direction::Omni => {
+                        let capture_up = _capt(r, x, oppo, occ, Direction::Up, acc);
+                        _capt(r, x, oppo, occ, Direction::Down, capture_up)
+                    }
                 }
-            };
+            }
+            let capture = |r, x, dir| _capt(r, x, opponent, occupied, dir, Vec::new());
 
-            let bitboard = POW2[usize::from(index)];
-            let (capture7, dest7) = capture(bitboard, 7);
-            let (capture9, dest9) = capture(bitboard, 9);
-
-            let itr = vec![(capture7, dest7), (capture9, dest9)].into_iter()
-                .flat_map(move |(c, d)|
-                    if c == BitBoard(0) {
+            let itr = capture(bitboard, 7, direction).into_iter()
+                .chain(capture(bitboard, 9, direction).into_iter())
+                .flat_map(move |(c, dest)|
+                    if dest == BitBoard(0) {
+                        let index = bitboard.iter().next().unwrap();
                         Box::new(iter::once((index, captured)))
                     } else {
                         let capt = c | captured;
                         let occ = occupied - c;
                         let opp = opponent - c;
-                        aux(d.iter().next().unwrap(), capt, opp, occ, direction)
+                        aux(dest, capt, opp, occ, direction)
                     }
                 );
             Box::new(itr)
         }
         
-        aux(self, BitBoard(0), opponent_pieces, occupied, direction)
+        let bitboard = POW2[usize::from(self)];
+        aux(bitboard, BitBoard(0), opponent_pieces, occupied, direction)
    }
 }
 
@@ -235,7 +246,6 @@ impl fmt::Display for Move {
 /// 2^1 at the upper left corner and iterate with odd powers of 2.
 struct BitBoard(u64);
 
-// FIXME: make the fmt output human readable
 impl fmt::Binary for BitBoard {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         let BitBoard(u) = self;
