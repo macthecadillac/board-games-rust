@@ -163,7 +163,7 @@ impl Index {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 struct Movement(Index, Index);
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq)]
 enum Move {
     Move(Movement),
     Capture(Movement, BitBoard)
@@ -185,8 +185,6 @@ impl PartialEq for Move {
         }
     }
 }
-
-impl Eq for Move {}
 
 impl str::FromStr for Move {
     type Err = Error;
