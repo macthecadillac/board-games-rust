@@ -4,7 +4,7 @@ pub trait Interactive<M> {
     fn is_valid_move(&self, mv: &M) -> bool;
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 /// The PlayerKind type
 pub enum PlayerKind {
     /// Human player
@@ -110,7 +110,8 @@ pub mod terminal {
             M: Default + Eq + Copy + str::FromStr + fmt::Display,
             P: Turing + Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
-                crate::Interactive<M> + fmt::Display + Clone
+                crate::Interactive<M> + fmt::Display + Clone +
+                Eq + std::hash::Hash
     {
         let mut game_state: T = Game::new(players);
         println!("\n{}", game_state);
@@ -168,7 +169,8 @@ pub mod terminal {
             M: Default + Eq + Copy + fmt::Display + str::FromStr,
             P: Builder + Turing + Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> + Terminal<Debug=Debug> +
-                crate::Interactive<M> + Clone + fmt::Display {
+                crate::Interactive<M> + Clone + fmt::Display +
+                Eq + std::hash::Hash {
         let args = App::new(name)
             .author(crate_authors!())
             .about("A board game with an optional Monte-Carlo based AI")
