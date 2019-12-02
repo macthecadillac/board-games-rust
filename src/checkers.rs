@@ -119,10 +119,9 @@ impl Index {
                       occupied: BitBoard,
                       direction: Direction)
         -> Box<dyn Iterator<Item=(Index, BitBoard)>> {
-        // FIXME: capture of top/bottom row pieces when a capturing king stops
-        // in front of the said top/bottom row piece shouldn't be possible
         // TODO: perhaps also accumulate the path taken as well
-        // Needs filter out of the function
+        // function output needs filtering to remove incomplete and trivial
+        // moves
         fn aux(index: Index,
                captured: BitBoard,
                opponent: BitBoard,
@@ -131,7 +130,8 @@ impl Index {
             -> Box<dyn Iterator<Item=(Index, BitBoard)>> {
             let capture = |r: BitBoard, x| {
                 let capt = r.shift(x, direction) & opponent;
-                let dest = capt.shift(x, direction).rm(occupied);
+                let _dest = capt.shift(x, direction).rm(occupied);
+                let dest = (_dest | r) - r;  // kings might "backtrack"
                 match dest {
                     BitBoard(0) => (BitBoard(0), BitBoard(0)),
                     _ => (capt, dest)
