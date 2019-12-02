@@ -1,5 +1,6 @@
 use std::fmt;
 use std::cmp;
+use std::collections::HashMap;
 
 use indextree::{Arena, NodeId};
 use rand::seq::SliceRandom;
@@ -104,10 +105,41 @@ type Tree<M, P, T> = Arena<Cell<M, P, T>>;
 /// Type alias of `Node<Cell<M, P, T>>`
 type Node<M, P, T> = indextree::Node<Cell<M, P, T>>;
 
+/// Implementation of n-fold repetition rules
+#[derive(Clone)]
+struct RepetitionGuard<T> where T: std::hash::Hash + Eq {
+    max: u8,
+    counters: HashMap<T, u8>
+}
+
+enum Repetition {
+    Acceptable,
+    Excessive
+}
+
+impl<T> RepetitionGuard<T> where T: std::hash::Hash + Eq {
+    fn new(max: u8) -> Self {
+        RepetitionGuard { max, counters: HashMap::new() }
+    }
+
+    fn inc(&mut self, key: T) -> Repetition {
+        let count = match self.counters.get(&key) {
+            Some(&c) => c + 1,
+            None => 1
+        };
+        if count > self.max {
+            Repetition::Excessive
+        } else {
+            self.counters.insert(key, count);
+            Repetition::Acceptable
+        }
+    }
+}
+
 /// Utility function that compares two nodes using a user provided function.
-fn comp<T, U, V, O>(func: fn(&Score, &Score) -> O,
-                    a: (NodeId, &Node<T, U, V>),
-                    b: (NodeId, &Node<T, U, V>)) -> O {
+fn comp<M, P, T, O>(func: fn(&Score, &Score) -> O,
+                    a: (NodeId, &Node<M, P, T>),
+                    b: (NodeId, &Node<M, P, T>)) -> O {
     let (_, node_a) = a;
     let (_, node_b) = b;
     func(&node_a.data.score, &node_b.data.score)
@@ -185,29 +217,50 @@ fn expand_one_level<M, P, T>(tree: &mut Tree<M, P, T>, node_id: NodeId)
 }
 
 /// The core of the function that carries out simulations
-fn playout<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
+fn playout<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>,
+                    mut repetition_guard: RepetitionGuard<T>)
                    -> Outcome
     where
         M: Default + Copy + Clone + Eq,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<Move=M, Player=P> + Clone {
+        T: Game<Move=M, Player=P> + Clone + Eq + std::hash::Hash {
     let fav_score_self = |a, b| comp(Score::gt_self, a, b);
     let fav_score_other = |a, b| comp(Score::gt_other, a, b);
     let score_eq = |a, b| comp(Score::feq, a, b);
     match node_id.node_type(tree) {
         NodeType::Node => {
             // TODO: Consider renaming this to something more descriptive
-            let branch: NodeId = {
-                let nodes = node_id.children(tree).map(|x| (x, &tree[x]));
-                if tree[node_id].data.player == player {
-                    pick(fav_score_self, score_eq, nodes)
+            let branch: Option<NodeId> = {
+                let mut nodes = node_id.children(tree)
+                    .map(|x| (x, &tree[x]))
+                    .filter(|(_, node)| 
+                        match repetition_guard.inc(node.data.state.clone()) {
+                            Repetition::Acceptable => true,
+                            Repetition::Excessive => false
+                        }
+                    )
+                    .peekable();
+                if nodes.peek().is_some() {
+                    if tree[node_id].data.player == player {
+                        Some(pick(fav_score_self, score_eq, nodes))
+                    } else {
+                        Some(pick(fav_score_other, score_eq, nodes))
+                    }
                 } else {
-                    pick(fav_score_other, score_eq, nodes)
+                    None
                 }
             };
-            let outcome = playout(player, branch, tree);
-            tree[node_id].data.score.update(outcome);
-            outcome
+            match branch {
+                Some(b) => {
+                    let outcome = playout(player, b, tree, repetition_guard);
+                    tree[node_id].data.score.update(outcome);
+                    outcome
+                },
+                // in this case, both players are forced to return to the same
+                // game state the n-th time, in which case, the game is no
+                // longer meaningful and is therefore considered a draw
+                None => Outcome::Draw
+            }
         },
         NodeType::Leaf => {
             match tree[node_id].data.state.status() {
@@ -224,7 +277,7 @@ fn playout<M, P, T>(player: P, node_id: NodeId, tree: &mut Tree<M, P, T>)
                 },
                 Status::Ongoing => {
                     expand_one_level(tree, node_id);
-                    playout(player, node_id, tree)
+                    playout(player, node_id, tree, repetition_guard)
                 }
             }
         }
@@ -237,39 +290,46 @@ pub fn most_favored_move<M, P, T>(maxiter: usize, game_state: &T,
     where
         M: Default + Copy + Clone + Eq + fmt::Display,
         P: fmt::Display + Eq + Clone + Copy,
-        T: Game<Move=M, Player=P> + Clone {
-    let player = game_state.current_player();
-    let init_score = Score::new(1);
-    let mut tree = Tree::new();
-    let i_init = M::default();
-    let state = game_state.clone();
-    let root_node = tree.new_node(Cell {
-       index: i_init,
-       player,
-       score: init_score,
-       state
-    });
+        T: Game<Move=M, Player=P> + Clone + Eq + std::hash::Hash {
+    // short circuit if there's only one possible move
+    // let count = game_state.available_moves().take(2).count();
+    // if count == 1 {
+    //     game_state.available_moves().next().unwrap()
+    // } else {
+        let player = game_state.current_player();
+        let init_score = Score::new(1);
+        let mut tree = Tree::new();
+        let i_init = M::default();
+        let state = game_state.clone();
+        let root_node = tree.new_node(Cell {
+           index: i_init,
+           player,
+           score: init_score,
+           state
+        });
 
-    for _ in 0..maxiter {
-        playout(player, root_node, &mut tree);
-    }
-
-    match dbg {
-        Debug::Release => (),
-        Debug::Debug => {
-            root_node.children(&tree)
-                .map(|x| &tree[x].data)
-                .for_each(|cell| println!("{}  {}", cell.index, cell.score));
-            println!();
+        for _ in 0..maxiter {
+            // FIXME: make 3 an argument in the function
+            playout(player, root_node, &mut tree, RepetitionGuard::new(1));
         }
-    };
 
-    let _gt = |a, b| match comp(Score::cmp, a, b) {
-        cmp::Ordering::Greater => true,
-        _ => false
-    };
-    let _eq = |a, b| comp(Score::eq, a, b);
-    let branches = root_node.children(&tree).map(|x| (x, &tree[x]));
-    let most_promising_branch = pick(_gt, _eq, branches);
-    tree[most_promising_branch].data.index
+        match dbg {
+            Debug::Release => (),
+            Debug::Debug => {
+                root_node.children(&tree)
+                    .map(|x| &tree[x].data)
+                    .for_each(|cell| println!("{}  {}", cell.index, cell.score));
+                println!();
+            }
+        };
+
+        let _gt = |a, b| match comp(Score::cmp, a, b) {
+            cmp::Ordering::Greater => true,
+            _ => false
+        };
+        let _eq = |a, b| comp(Score::eq, a, b);
+        let branches = root_node.children(&tree).map(|x| (x, &tree[x]));
+        let most_promising_branch = pick(_gt, _eq, branches);
+        tree[most_promising_branch].data.index
+    // }
 }

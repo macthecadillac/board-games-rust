@@ -78,7 +78,7 @@ const POW2: [BitBoard; 42] = [
     BitBoard(549755813888), BitBoard(1099511627776), BitBoard(2199023255552)
 ];
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
 /// The player type
 enum Player {
     /// Player one
@@ -107,20 +107,6 @@ impl Turing for Player {
         }
     }
 }
-
-impl PartialEq for Player {
-    fn eq(&self, rhs: &Self) -> bool {
-        match (self, rhs) {
-            // We don't really care about the player kind here since there can
-            // only be one player 1 and so on in the game
-            (Player::One(_), Player::One(_)) |
-                (Player::Two(_), Player::Two(_)) => true,
-            _ => false
-        }
-    }
-}
-
-impl Eq for Player {}
 
 impl fmt::Display for Player {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -156,7 +142,7 @@ impl str::FromStr for Index {
 }
 
 #[derive(Add, AddAssign, BitOr, PartialOrd, Ord, PartialEq, Eq,
-         Copy, Clone, Debug, Display)]
+         Copy, Clone, Debug, Display, Hash)]
 /// The BitBoard struct. This is the memoery representation of the
 /// connect4 game state for one of the players.
 struct BitBoard(u64);
@@ -178,7 +164,7 @@ impl fmt::Binary for BitBoard {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 /// The ConnectFourState struct. This is the internal representation of the
 /// game state during play.
 struct ConnectFourState {
