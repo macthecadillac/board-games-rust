@@ -7,8 +7,9 @@ extern crate clap;
 #[macro_use]
 extern crate derive_more;
 
+extern crate atree;
 extern crate console;
-extern crate indextree;
+// extern crate indextree;
 extern crate itertools;
 extern crate rand;
 extern crate unicode_segmentation;
@@ -22,6 +23,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 mod mcts;
 mod ui;
+mod repetition_guard;
 
 use mcts::{Debug, Game, Status};
 use ui::{Interactive, PlayerKind, Builder, Turing};
@@ -640,5 +642,6 @@ impl Game for CheckersState {
 }
 
 fn main() -> Result<(), terminal::Error> {
-    ui::terminal::launch_game::<CheckersState, Move, Player>("Checkers")
+    let nfold = Some(3);
+    ui::terminal::launch_game::<CheckersState, Move, Player>("Checkers", nfold)
 }

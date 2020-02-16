@@ -32,6 +32,7 @@ pub mod terminal {
 
     use crate::mcts;
     use crate::mcts::{Debug, Game, Status};
+    use crate::repetition_guard::{Repetition, RepetitionGuard};
 
     use super::{PlayerKind, Turing, Builder};
 
@@ -58,22 +59,29 @@ pub mod terminal {
     /// again if the input was invalid.
     fn acquire_input<T, M, P>(game_state: &T) -> M
         where
-            M: Default + Eq + Copy + str::FromStr,
+            M: Default + Eq + Copy + str::FromStr + std::fmt::Display,
             P: Copy + Eq + fmt::Display,
             T: Game<Move=M, Player=P> {
+        let available_moves: Vec<_> = game_state.available_moves()
+            .collect();
         loop {
+            for (i, chunk) in available_moves[..].chunks(3).enumerate() {
+                for (j, mv) in chunk.iter().enumerate() {
+                    print!("{}. {}   ", 3 * i + j, mv);
+                }
+                println!()
+            }
             print!("\nEnter your move: ");
             io::stdout().flush().unwrap();  // ensures the msg shows up
             let mut input = String::new();
             match io::stdin().read_line(&mut input) {
                 Err(_) => println!("Invalid input."),
-                Ok(_) => match input.trim().parse::<M>() {
+                Ok(_) => match input.trim().parse::<usize>() {
                     Err(_) => println!("Invalid input."),
                     Ok(m) => {
-                        if game_state.available_moves().any(|x| x == m) {
-                            break m
-                        } else {
-                            println!("Not a valid move.");
+                        match available_moves.get(m) {
+                            Some(&mv) => break mv,
+                            None => println!("Not a valid move.")
                         }
                     }
                 }
@@ -101,10 +109,11 @@ pub mod terminal {
         }
     }
 
+    // FIXME: something broke such that the last two moves are no longer shown
     /// Play against the MCTS AI.  ***TODO*** For games with more than two
     /// players, have the ability to choose which side(s) are played by humans
     /// and which are played by the AI.
-    fn game_loop<T, M, P>(nplayouts: usize, players: Vec<P>,
+    fn game_loop<T, M, P>(nplayouts: usize, players: Vec<P>, nfold: Option<u8>,
                           debug: Debug) -> Result<(), Error>
         where
             M: Default + Eq + Copy + str::FromStr + fmt::Display,
@@ -118,7 +127,17 @@ pub mod terminal {
 
         let term = Term::stdout();
         let mut buffer = Buffer::Keep;
+        let mut nfold_guard = match nfold {
+            Some(n) => Some(RepetitionGuard::new(n)),
+            None => None
+        };
+        let mut automatic_draw = false;
         loop {
+            if automatic_draw {
+                println!("Automatic draw due to the {}-fold repetition rule",
+                         nfold.unwrap());
+                break
+            }
             let current_player = game_state.current_player();
             match game_state.status() {
                 Status::Finished => {
@@ -137,6 +156,17 @@ pub mod terminal {
                         PlayerKind::Human => {
                             let n = acquire_input(&game_state);
                             game_state = game_state.mv(n);
+                            if let (Some(g), Some(n)) = (&mut nfold_guard, nfold) {
+                                match g.inc(game_state.clone()) {
+                                    Repetition::Acceptable => println!(
+                                        "Repeated move. Repeating over {} times will \
+                                        result in an automatic draw.", n
+                                    ),
+                                    Repetition::Excessive => {
+                                        automatic_draw = true;
+                                    }
+                                }
+                            };
                             println!("\n{}", game_state);
                             // if the current player has another turn
                             if game_state.current_player() == current_player {
@@ -148,11 +178,20 @@ pub mod terminal {
                         PlayerKind::Bot => {
                             let ai_move = mcts::most_favored_move(nplayouts,
                                                                   &game_state,
+                                                                  &nfold_guard,
                                                                   &debug);
                             game_state = game_state.mv(ai_move);
                             println!("\nPlayer {}'s move: {}\n", current_player,
                                      ai_move);
                             println!("{}", game_state);
+                            if let Some(g) = &mut nfold_guard {
+                                match g.inc(game_state.clone()) {
+                                    Repetition::Acceptable => (),
+                                    Repetition::Excessive => {
+                                        automatic_draw = true;
+                                    }
+                                }
+                            };
                             buffer = Buffer::Keep;
                         }
                     }
@@ -164,7 +203,7 @@ pub mod terminal {
 
     /// The entry point into a terminal-based game. See the other files in the
     /// repository for example usage.
-    pub fn launch_game<T, M, P>(name: &str) -> Result<(), Error>
+    pub fn launch_game<T, M, P>(name: &str, nfold: Option<u8>) -> Result<(), Error>
         where
             M: Default + Eq + Copy + fmt::Display + str::FromStr,
             P: Builder + Turing + Copy + Eq + fmt::Display,
@@ -235,6 +274,6 @@ pub mod terminal {
         let debug = if args.is_present("debug") { Debug::Debug }
                     else { Debug::Release };
         clear_screen()?;
-        game_loop::<T, M, P>(nplayouts, players, debug)
+        game_loop::<T, M, P>(nplayouts, players, nfold, debug)
     }
 }
